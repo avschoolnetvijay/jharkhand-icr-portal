@@ -7,8 +7,8 @@ import ReadOnlySubmissionView from './components/ReadOnlySubmissionView';
 import AdminDashboard from './components/AdminDashboard';
 import SettingsModal from './components/SettingsModal';
 import defaultSchools from './data/schools_master.json';
-import { fetchSchoolStatusMap, fetchMasterSchools } from './services/api';
-import { CheckCircle2, Search, ArrowRight, ShieldCheck, Database, HardDrive, Smartphone, RefreshCw } from 'lucide-react';
+import { fetchSchoolStatusMap, fetchMasterSchools, getApiUrl } from './services/api';
+import { Search, ShieldCheck, Database, RefreshCw, AlertTriangle, Cloud } from 'lucide-react';
 
 export default function App() {
   const [schools, setSchools] = useState(defaultSchools);
@@ -17,6 +17,8 @@ export default function App() {
   const [currentView, setCurrentView] = useState('technician'); // 'technician' | 'admin'
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const isApiConnected = Boolean(getApiUrl());
 
   // Load both Master Schools and Status Map dynamically from Google Sheets
   const refreshAllData = useCallback(async () => {
@@ -65,6 +67,27 @@ export default function App() {
         completedCount={completedCount}
         totalSchools={schools.length}
       />
+
+      {/* Prominent Warning Banner if Google Sheet is NOT connected */}
+      {!isApiConnected && (
+        <div className="bg-gradient-to-r from-amber-600 to-orange-600 text-white px-4 py-2.5 shadow-md">
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
+            <div className="flex items-center space-x-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-200 animate-bounce" />
+              <span>
+                <strong>Google Sheet Not Connected!</strong> You must connect your Google Apps Script URL on this site for data to sync to your Google Sheet.
+              </span>
+            </div>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="inline-flex items-center space-x-1.5 px-3 py-1 bg-white text-orange-800 font-bold rounded-lg hover:bg-orange-50 shadow-xs cursor-pointer transition-all"
+            >
+              <Cloud className="h-3.5 w-3.5 text-orange-600" />
+              <span>Connect Google Sheet Now</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">

@@ -18,7 +18,6 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 export const formatDateDDMMMYYYY = (input) => {
   if (!input) return '';
   const str = String(input).trim();
-  // Already in dd-mmm-yyyy format (e.g. 13-Sep-2026)
   if (/^\d{2}-[A-Za-z]{3}-\d{4}$/.test(str)) {
     return str;
   }
@@ -27,11 +26,9 @@ export const formatDateDDMMMYYYY = (input) => {
   if (input instanceof Date) {
     d = input;
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    // YYYY-MM-DD
     const [y, m, day] = str.split('-').map(Number);
     d = new Date(y, m - 1, day);
   } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) {
-    // DD/MM/YYYY
     const [day, m, y] = str.split('/').map(Number);
     d = new Date(y, m - 1, day);
   } else {
@@ -204,6 +201,13 @@ export const checkSerialDuplicate = async (serialNumber, currentUdise) => {
  */
 export const submitICR = async (submissionPayload) => {
   const url = getApiUrl();
+  
+  if (!url) {
+    throw new Error(
+      'Google Sheets is NOT connected on this site! Please click the Cloud/Settings icon at the top right and enter your Google Apps Script Web App URL first.'
+    );
+  }
+
   const {
     udise,
     snil,
@@ -225,15 +229,36 @@ export const submitICR = async (submissionPayload) => {
 
   const submissionId = 'SUB-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
 
-  // Normalize payload with formatted date and installed_by
   const normalizedPayload = {
     ...submissionPayload,
     installed_by: installed_by,
-    technician_name: installed_by, // backwards compatibility
+    technician_name: installed_by,
     installation_date: formattedInstallDate
   };
 
-  // Prepare Local Row-Wise Records
+  // 1. Submit directly to Google Apps Script Web App API
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(normalizedPayload)
+    });
+    
+    const json = await res.json();
+    if (!json.success) {
+      if (json.duplicate_detected && json.details) {
+        throw new Error(
+          `DUPLICATE ERROR: Serial number "${json.details.serial}" already registered in ${json.details.schoolName} (${json.details.udise}) by ${json.details.installedBy || json.details.updatedBy}!`
+        );
+      }
+      throw new Error(json.error || 'Google Sheets rejected the submission.');
+    }
+  } catch (err) {
+    console.error('Google Sheet Sync Error:', err);
+    throw new Error(`Google Sheet Sync Failed: ${err.message}. Please check if the Web App URL is active with "Anyone" access.`);
+  }
+
+  // Prepare Local Row-Wise Records for fast local cache
   const newRowItems = devices.map(d => ({
     Submission_ID: submissionId,
     UDISE_Code: udise,
@@ -254,24 +279,6 @@ export const submitICR = async (submissionPayload) => {
     Submission_Timestamp: nowTimestamp
   }));
 
-  // Attempt Google Sheets Sync if URL configured
-  if (url) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(normalizedPayload)
-      });
-      const json = await res.json();
-      if (!json.success) {
-        throw new Error(json.error || 'Google Sheets submission failed');
-      }
-    } catch (err) {
-      console.warn('Remote sync error. Saving to local storage:', err);
-    }
-  }
-
-  // Update Local Storage
   const localInventory = JSON.parse(localStorage.getItem(STORAGE_INVENTORY) || '[]');
   const updatedInventory = [...localInventory, ...newRowItems];
   localStorage.setItem(STORAGE_INVENTORY, JSON.stringify(updatedInventory));
@@ -290,7 +297,7 @@ export const submitICR = async (submissionPayload) => {
 
   return {
     success: true,
-    message: `Successfully digitized ${newRowItems.length} devices for ${school_name}!`,
+    message: `Successfully digitized ${newRowItems.length} devices for ${school_name} into Google Sheets!`,
     submissionId: submissionId,
     timestamp: nowTimestamp,
     totalDevices: devices.length
@@ -348,7 +355,6 @@ export const getAllInventoryRows = async () => {
 
 /**
  * Export Row-wise Data to Excel (.xlsx)
- * Guaranteed 1 Row per Device Asset with dd-mmm-yyyy date format!
  */
 export const exportInventoryToExcel = (inventoryRows, schoolsMaster, statusMap) => {
   const wb = XLSX.utils.book_new();
@@ -390,7 +396,7 @@ export const exportInventoryToExcel = (inventoryRows, schoolsMaster, statusMap) 
     { wch: 22 }, // Serial Number
     { wch: 10 }, // Installed
     { wch: 10 }, // Working
-    { wch: 16 }, // Installation Date (dd-mmm-yyyy)
+    { wch: 16 }, // Installation Date
     { wch: 22 }, // Installed By
     { wch: 15 }, // Mobile
     { wch: 24 }, // Timestamp
@@ -433,7 +439,7 @@ export const exportInventoryToExcel = (inventoryRows, schoolsMaster, statusMap) 
     { wch: 14 }, // Status
     { wch: 22 }, // Installed By
     { wch: 15 }, // Mobile
-    { wch: 16 }, // Installation Date (dd-mmm-yyyy)
+    { wch: 16 }, // Installation Date
     { wch: 24 }, // Timestamp
   ];
 
