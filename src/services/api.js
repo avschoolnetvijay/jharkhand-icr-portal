@@ -1,0 +1,444 @@
+import * as XLSX from 'xlsx';
+import defaultSchools from '../data/schools_master.json';
+
+// Storage keys
+const STORAGE_API_URL = 'icr_google_script_url';
+const STORAGE_INVENTORY = 'icr_local_inventory';
+const STORAGE_STATUS = 'icr_local_status';
+const STORAGE_MASTER_SCHOOLS = 'icr_cached_master_schools';
+
+// Default / fallback API URL (can be customized via UI or .env)
+const DEFAULT_API_URL = import.meta.env?.VITE_GOOGLE_SCRIPT_URL || '';
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * Format any date string or Date object to dd-mmm-yyyy (e.g. 13-Sep-2026)
+ */
+export const formatDateDDMMMYYYY = (input) => {
+  if (!input) return '';
+  const str = String(input).trim();
+  // Already in dd-mmm-yyyy format (e.g. 13-Sep-2026)
+  if (/^\d{2}-[A-Za-z]{3}-\d{4}$/.test(str)) {
+    return str;
+  }
+
+  let d;
+  if (input instanceof Date) {
+    d = input;
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    // YYYY-MM-DD
+    const [y, m, day] = str.split('-').map(Number);
+    d = new Date(y, m - 1, day);
+  } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) {
+    // DD/MM/YYYY
+    const [day, m, y] = str.split('/').map(Number);
+    d = new Date(y, m - 1, day);
+  } else {
+    d = new Date(str);
+  }
+
+  if (isNaN(d.getTime())) return str;
+
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = MONTH_NAMES[d.getMonth()];
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+};
+
+export const getApiUrl = () => {
+  return localStorage.getItem(STORAGE_API_URL) || DEFAULT_API_URL;
+};
+
+export const setApiUrl = (url) => {
+  if (url) {
+    localStorage.setItem(STORAGE_API_URL, url.trim());
+  } else {
+    localStorage.removeItem(STORAGE_API_URL);
+  }
+};
+
+/**
+ * Fetch Master School List directly from Google Sheet (Master_Schools tab)
+ */
+export const fetchMasterSchools = async () => {
+  const url = getApiUrl();
+  const cached = localStorage.getItem(STORAGE_MASTER_SCHOOLS);
+
+  if (!url) {
+    return cached ? JSON.parse(cached) : defaultSchools;
+  }
+
+  try {
+    const res = await fetch(`${url}?action=getMasterSchools`);
+    const json = await res.json();
+    if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+      localStorage.setItem(STORAGE_MASTER_SCHOOLS, JSON.stringify(json.data));
+      return json.data;
+    }
+  } catch (err) {
+    console.warn('Could not fetch Master_Schools from Google Sheets. Using cached/local list:', err);
+  }
+
+  return cached ? JSON.parse(cached) : defaultSchools;
+};
+
+/**
+ * One-click helper: Seed / push the 679 master schools directly into Google Sheet
+ */
+export const seedMasterSchoolsToGoogleSheet = async () => {
+  const url = getApiUrl();
+  if (!url) throw new Error('Please configure Google Apps Script Web App URL first.');
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({
+      action: 'seedMasterSchools',
+      schools: defaultSchools
+    })
+  });
+
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || 'Failed to seed master schools');
+  
+  localStorage.setItem(STORAGE_MASTER_SCHOOLS, JSON.stringify(defaultSchools));
+  return json;
+};
+
+/**
+ * Fetch all school completion statuses
+ */
+export const fetchSchoolStatusMap = async () => {
+  const url = getApiUrl();
+  const localStatus = JSON.parse(localStorage.getItem(STORAGE_STATUS) || '{}');
+
+  if (!url) {
+    return localStatus;
+  }
+
+  try {
+    const res = await fetch(`${url}?action=getAllStatus`);
+    const json = await res.json();
+    if (json.success && Array.isArray(json.data)) {
+      const remoteMap = {};
+      json.data.forEach(item => {
+        if (item.UDISE_Code) {
+          remoteMap[String(item.UDISE_Code)] = {
+            status: item.Status || 'Completed',
+            installedBy: item.Installed_By || item.Updated_By_Name || '',
+            mobile: item.Updated_By_Mobile || '',
+            date: formatDateDDMMMYYYY(item.Installation_Date || ''),
+            timestamp: item.Last_Updated_Timestamp || '',
+            totalDevices: item.Total_Devices || 0,
+            devicesJson: item.Device_Serials_JSON || '[]'
+          };
+        }
+      });
+      const merged = { ...remoteMap, ...localStatus };
+      return merged;
+    }
+  } catch (err) {
+    console.warn('Could not connect to Google Apps Script. Falling back to local storage:', err);
+  }
+
+  return localStatus;
+};
+
+/**
+ * Real-time lookup: Check if a serial number is already registered across any school
+ */
+export const checkSerialDuplicate = async (serialNumber, currentUdise) => {
+  const cleanSerial = (serialNumber || '').trim().toUpperCase();
+  if (!cleanSerial) return { exists: false };
+
+  // 1. Check local storage inventory first
+  const localInventory = JSON.parse(localStorage.getItem(STORAGE_INVENTORY) || '[]');
+  const localMatch = localInventory.find(
+    item => (item.Serial_Number || '').toUpperCase() === cleanSerial
+  );
+
+  if (localMatch) {
+    return {
+      exists: true,
+      match: {
+        serialNumber: localMatch.Serial_Number,
+        udise: localMatch.UDISE_Code,
+        schoolName: localMatch.School_Name,
+        district: localMatch.District,
+        itemName: localMatch.Item_Name,
+        installedBy: localMatch.Installed_By || localMatch.Updated_By_Name,
+        mobile: localMatch.Updated_By_Mobile,
+        date: formatDateDDMMMYYYY(localMatch.Installation_Date),
+        timestamp: localMatch.Submission_Timestamp
+      }
+    };
+  }
+
+  // 2. Check remote Google Sheet API if configured
+  const url = getApiUrl();
+  if (url) {
+    try {
+      const res = await fetch(`${url}?action=checkSerial&serial=${encodeURIComponent(cleanSerial)}`);
+      const json = await res.json();
+      if (json.success && json.exists && json.match) {
+        return {
+          exists: true,
+          match: {
+            ...json.match,
+            installedBy: json.match.installedBy || json.match.updatedBy,
+            date: formatDateDDMMMYYYY(json.match.installDate || json.match.date)
+          }
+        };
+      }
+    } catch (err) {
+      console.warn('Error checking remote serial:', err);
+    }
+  }
+
+  return { exists: false };
+};
+
+/**
+ * Submit School ICR Data
+ */
+export const submitICR = async (submissionPayload) => {
+  const url = getApiUrl();
+  const {
+    udise,
+    snil,
+    school_name,
+    district,
+    block,
+    category,
+    installed_by,
+    technician_mobile,
+    installation_date,
+    devices
+  } = submissionPayload;
+
+  // Enforce dd-mmm-yyyy format (e.g. 13-Sep-2026)
+  const formattedInstallDate = formatDateDDMMMYYYY(installation_date);
+
+  const now = new Date();
+  const nowTimestamp = `${formatDateDDMMMYYYY(now)} ${now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}`;
+
+  const submissionId = 'SUB-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+
+  // Normalize payload with formatted date and installed_by
+  const normalizedPayload = {
+    ...submissionPayload,
+    installed_by: installed_by,
+    technician_name: installed_by, // backwards compatibility
+    installation_date: formattedInstallDate
+  };
+
+  // Prepare Local Row-Wise Records
+  const newRowItems = devices.map(d => ({
+    Submission_ID: submissionId,
+    UDISE_Code: udise,
+    SNIL_Code: snil,
+    School_Name: school_name,
+    District: district,
+    Block_Name: block,
+    Lab_Category: category,
+    Item_Name: d.item_name,
+    Make_And_Model: d.make_model,
+    Serial_Number: String(d.serial_number || '').trim().toUpperCase(),
+    Installed_Status: 'Yes',
+    Working_Status: 'Yes',
+    Installation_Date: formattedInstallDate,
+    Installed_By: installed_by,
+    Updated_By_Name: installed_by,
+    Updated_By_Mobile: technician_mobile,
+    Submission_Timestamp: nowTimestamp
+  }));
+
+  // Attempt Google Sheets Sync if URL configured
+  if (url) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(normalizedPayload)
+      });
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.error || 'Google Sheets submission failed');
+      }
+    } catch (err) {
+      console.warn('Remote sync error. Saving to local storage:', err);
+    }
+  }
+
+  // Update Local Storage
+  const localInventory = JSON.parse(localStorage.getItem(STORAGE_INVENTORY) || '[]');
+  const updatedInventory = [...localInventory, ...newRowItems];
+  localStorage.setItem(STORAGE_INVENTORY, JSON.stringify(updatedInventory));
+
+  const localStatus = JSON.parse(localStorage.getItem(STORAGE_STATUS) || '{}');
+  localStatus[String(udise)] = {
+    status: 'Completed',
+    installedBy: installed_by,
+    mobile: technician_mobile,
+    date: formattedInstallDate,
+    timestamp: nowTimestamp,
+    totalDevices: devices.length,
+    devicesJson: JSON.stringify(devices)
+  };
+  localStorage.setItem(STORAGE_STATUS, JSON.stringify(localStatus));
+
+  return {
+    success: true,
+    message: `Successfully digitized ${newRowItems.length} devices for ${school_name}!`,
+    submissionId: submissionId,
+    timestamp: nowTimestamp,
+    totalDevices: devices.length
+  };
+};
+
+/**
+ * Get all inventory records (Row-wise)
+ */
+export const getAllInventoryRows = async () => {
+  const url = getApiUrl();
+  const localInventory = JSON.parse(localStorage.getItem(STORAGE_INVENTORY) || '[]');
+
+  if (!url) {
+    return localInventory;
+  }
+
+  try {
+    const res = await fetch(`${url}?action=getInventory`);
+    const json = await res.json();
+    if (json.success && Array.isArray(json.data)) {
+      const remoteRows = json.data;
+      const seen = new Set();
+      const combined = [];
+
+      remoteRows.forEach(r => {
+        const key = `${r.UDISE_Code}_${r.Item_Name}_${r.Serial_Number}`;
+        seen.add(key);
+        combined.push({
+          ...r,
+          Installed_By: r.Installed_By || r.Updated_By_Name,
+          Installation_Date: formatDateDDMMMYYYY(r.Installation_Date)
+        });
+      });
+
+      localInventory.forEach(r => {
+        const key = `${r.UDISE_Code}_${r.Item_Name}_${r.Serial_Number}`;
+        if (!seen.has(key)) {
+          combined.push({
+            ...r,
+            Installed_By: r.Installed_By || r.Updated_By_Name,
+            Installation_Date: formatDateDDMMMYYYY(r.Installation_Date)
+          });
+        }
+      });
+
+      return combined;
+    }
+  } catch (err) {
+    console.warn('Error fetching remote inventory:', err);
+  }
+
+  return localInventory;
+};
+
+/**
+ * Export Row-wise Data to Excel (.xlsx)
+ * Guaranteed 1 Row per Device Asset with dd-mmm-yyyy date format!
+ */
+export const exportInventoryToExcel = (inventoryRows, schoolsMaster, statusMap) => {
+  const wb = XLSX.utils.book_new();
+
+  // 1. Sheet: Device Serial Inventory (ROW-WISE ASSET REGISTER)
+  const formattedRows = inventoryRows.map((row, idx) => ({
+    'SL No': idx + 1,
+    'Submission ID': row.Submission_ID || `SUB-${idx + 1}`,
+    'UDISE Code': row.UDISE_Code,
+    'SNIL Code': row.SNIL_Code,
+    'School Name': row.School_Name,
+    'District': row.District,
+    'Block Name': row.Block_Name,
+    'Lab Category': row.Lab_Category,
+    'Device / Item Name': row.Item_Name,
+    'Make & Model': row.Make_And_Model,
+    'Serial Number': row.Serial_Number,
+    'Installed': row.Installed_Status || 'Yes',
+    'Working': row.Working_Status || 'Yes',
+    'Installation Date': formatDateDDMMMYYYY(row.Installation_Date),
+    'Installed By': row.Installed_By || row.Updated_By_Name || '',
+    'Mobile Number': row.Updated_By_Mobile || '',
+    'Submission Timestamp': row.Submission_Timestamp || ''
+  }));
+
+  const wsInventory = XLSX.utils.json_to_sheet(formattedRows);
+
+  wsInventory['!cols'] = [
+    { wch: 8 },  // SL No
+    { wch: 18 }, // Submission ID
+    { wch: 14 }, // UDISE
+    { wch: 18 }, // SNIL
+    { wch: 38 }, // School Name
+    { wch: 16 }, // District
+    { wch: 18 }, // Block
+    { wch: 25 }, // Lab Category
+    { wch: 30 }, // Device Name
+    { wch: 25 }, // Make & Model
+    { wch: 22 }, // Serial Number
+    { wch: 10 }, // Installed
+    { wch: 10 }, // Working
+    { wch: 16 }, // Installation Date (dd-mmm-yyyy)
+    { wch: 22 }, // Installed By
+    { wch: 15 }, // Mobile
+    { wch: 24 }, // Timestamp
+  ];
+
+  XLSX.utils.book_append_sheet(wb, wsInventory, 'Device_Serial_Register');
+
+  // 2. Sheet: School Summary Status (Completed vs Pending)
+  const summaryRows = schoolsMaster.map((sch, idx) => {
+    const statusInfo = statusMap[String(sch.udise)] || {};
+    const isCompleted = statusInfo.status === 'Completed';
+
+    return {
+      'SL No': idx + 1,
+      'UDISE Code': sch.udise,
+      'SNIL Code': sch.snil,
+      'School Name': sch.school_name,
+      'District': sch.district,
+      'Block Name': sch.block,
+      'Lab Category': sch.category,
+      'Total Required Devices': sch.device_count,
+      'Status': isCompleted ? 'Completed' : 'Pending',
+      'Installed By': statusInfo.installedBy || statusInfo.updatedBy || '-',
+      'Mobile Number': statusInfo.mobile || '-',
+      'Installation Date': statusInfo.date ? formatDateDDMMMYYYY(statusInfo.date) : '-',
+      'Submission Timestamp': statusInfo.timestamp || '-'
+    };
+  });
+
+  const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+  wsSummary['!cols'] = [
+    { wch: 8 },  // SL No
+    { wch: 14 }, // UDISE
+    { wch: 18 }, // SNIL
+    { wch: 38 }, // School Name
+    { wch: 16 }, // District
+    { wch: 18 }, // Block
+    { wch: 25 }, // Category
+    { wch: 15 }, // Total Devices
+    { wch: 14 }, // Status
+    { wch: 22 }, // Installed By
+    { wch: 15 }, // Mobile
+    { wch: 16 }, // Installation Date (dd-mmm-yyyy)
+    { wch: 24 }, // Timestamp
+  ];
+
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'School_Status_Summary');
+
+  const dateStr = formatDateDDMMMYYYY(new Date());
+  XLSX.writeFile(wb, `ICR_Device_Serial_Register_Jharkhand_${dateStr}.xlsx`);
+};
