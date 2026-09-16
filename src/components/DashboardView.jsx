@@ -9,7 +9,6 @@ import {
   FileCheck,
   Eye,
   ArrowRight,
-  Sparkles,
   Download
 } from 'lucide-react';
 import { formatDateDDMMMYYYY, getAllInventoryRows, exportInventoryToExcel } from '../services/api';
@@ -52,7 +51,7 @@ export default function DashboardView({
         const info = statusMap[s.udise] || {};
         return {
           ...s,
-          installedBy: info.installedBy || info.updatedBy || 'Vijay Kumar Ray',
+          installedBy: info.installedBy || info.updatedBy || '-',
           date: info.date ? formatDateDDMMMYYYY(info.date) : '15-Sep-2026',
           status: 'Completed',
           totalDevices: info.totalDevices || (s.category === 'SMART_ONLY' ? 4 : 12)
@@ -98,53 +97,7 @@ export default function DashboardView({
 
   return (
     <div className="space-y-6 sm:space-y-7 animate-in fade-in duration-200">
-      {/* 1. Welcome Banner (Soft Meadow/Sky Gradient) */}
-      <div className="relative overflow-hidden rounded-2xl sm:rounded-3xl bg-gradient-to-r from-[#dbeafe] via-[#e0f2fe] to-[#dcfce7] border border-sky-200/80 p-6 sm:p-8 shadow-xs">
-        {/* Background decorative pattern */}
-        <div className="absolute right-0 top-0 bottom-0 w-1/3 opacity-15 pointer-events-none flex items-center justify-end pr-8">
-          <svg viewBox="0 0 200 200" className="w-64 h-64 text-sky-600 fill-current">
-            <circle cx="100" cy="100" r="80" fill="none" stroke="currentColor" strokeWidth="8" strokeDasharray="12 12" />
-            <circle cx="100" cy="100" r="50" fill="currentColor" opacity="0.4" />
-          </svg>
-        </div>
-
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white/80 border border-sky-300/60 text-sky-800 text-xs font-semibold mb-3 shadow-2xs backdrop-blur-xs">
-              <Sparkles className="h-3.5 w-3.5 text-sky-600" />
-              <span>Jharkhand ICT & Smart Class Digitization</span>
-            </div>
-            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-              Welcome, Vijay!
-            </h2>
-            <p className="text-sm sm:text-base text-slate-700 font-medium mt-1">
-              Let's make our schools smarter together.
-            </p>
-            <div className="mt-3 flex items-center space-x-3 text-xs font-bold text-[#1d68e2]">
-              <span>Collect</span>
-              <span className="text-slate-400">•</span>
-              <span>Monitor</span>
-              <span className="text-slate-400">•</span>
-              <span>Improve</span>
-            </div>
-          </div>
-
-          {/* Slogan Banner Tag */}
-          <div className="shrink-0 bg-white/85 backdrop-blur-xs p-4 rounded-2xl border border-sky-200 text-right hidden sm:block shadow-2xs">
-            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Project Vision
-            </div>
-            <div className="text-base font-black text-[#0f2d59] mt-0.5">
-              Better Education
-            </div>
-            <div className="text-sm font-extrabold text-[#0284c7]">
-              Brighter Tomorrow
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Row of 4 Metric KPI Cards */}
+      {/* 1. Row of 4 Metric KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         {/* Total Schools */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center space-x-4">

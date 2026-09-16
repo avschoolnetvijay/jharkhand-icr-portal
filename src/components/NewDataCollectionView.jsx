@@ -35,7 +35,7 @@ export default function NewDataCollectionView({
   const [currentStep, setCurrentStep] = useState(1);
 
   // Form State
-  const [installedBy, setInstalledBy] = useState('Vijay Kumar Ray');
+  const [installedBy, setInstalledBy] = useState('');
   const [techMobile, setTechMobile] = useState('');
   const [installDate, setInstallDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
