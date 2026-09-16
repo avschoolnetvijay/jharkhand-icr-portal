@@ -5,6 +5,7 @@ import defaultSchools from '../data/schools_master.json';
 const STORAGE_API_URL = 'icr_google_script_url';
 const STORAGE_INVENTORY = 'icr_local_inventory';
 const STORAGE_STATUS = 'icr_local_status';
+const STORAGE_STATUS_CACHE = 'icr_cached_status_map';
 const STORAGE_MASTER_SCHOOLS = 'icr_cached_master_schools';
 
 // Permanent default Google Apps Script Web App URL for Jharkhand ICT & Smart Class Project
@@ -58,14 +59,41 @@ export const setApiUrl = (url) => {
 };
 
 /**
+ * Instant retrieve cached master schools
+ */
+export const getCachedMasterSchools = () => {
+  try {
+    const cached = localStorage.getItem(STORAGE_MASTER_SCHOOLS);
+    return cached ? JSON.parse(cached) : defaultSchools;
+  } catch {
+    return defaultSchools;
+  }
+};
+
+/**
+ * Instant retrieve cached status map
+ */
+export const getCachedStatusMap = () => {
+  try {
+    const cached = localStorage.getItem(STORAGE_STATUS_CACHE);
+    const local = localStorage.getItem(STORAGE_STATUS);
+    const cachedObj = cached ? JSON.parse(cached) : {};
+    const localObj = local ? JSON.parse(local) : {};
+    return { ...cachedObj, ...localObj };
+  } catch {
+    return {};
+  }
+};
+
+/**
  * Fetch Master School List directly from Google Sheet (Master_Schools tab)
  */
 export const fetchMasterSchools = async () => {
   const url = getApiUrl();
-  const cached = localStorage.getItem(STORAGE_MASTER_SCHOOLS);
+  const cached = getCachedMasterSchools();
 
   if (!url) {
-    return cached ? JSON.parse(cached) : defaultSchools;
+    return cached;
   }
 
   try {
@@ -79,7 +107,7 @@ export const fetchMasterSchools = async () => {
     console.warn('Could not fetch Master_Schools from Google Sheets. Using cached/local list:', err);
   }
 
-  return cached ? JSON.parse(cached) : defaultSchools;
+  return cached;
 };
 
 /**
@@ -106,14 +134,14 @@ export const seedMasterSchoolsToGoogleSheet = async () => {
 };
 
 /**
- * Fetch all school completion statuses
+ * Fetch all school completion statuses with instant cache persistence
  */
 export const fetchSchoolStatusMap = async () => {
   const url = getApiUrl();
-  const localStatus = JSON.parse(localStorage.getItem(STORAGE_STATUS) || '{}');
+  const cachedMap = getCachedStatusMap();
 
   if (!url) {
-    return localStatus;
+    return cachedMap;
   }
 
   try {
@@ -134,14 +162,19 @@ export const fetchSchoolStatusMap = async () => {
           };
         }
       });
-      const merged = { ...remoteMap, ...localStatus };
+      const merged = { ...cachedMap, ...remoteMap };
+      try {
+        localStorage.setItem(STORAGE_STATUS_CACHE, JSON.stringify(merged));
+      } catch (e) {
+        console.warn('Could not cache status map:', e);
+      }
       return merged;
     }
   } catch (err) {
-    console.warn('Could not connect to Google Apps Script. Falling back to local storage:', err);
+    console.warn('Could not connect to Google Apps Script. Falling back to cached status:', err);
   }
 
-  return localStatus;
+  return cachedMap;
 };
 
 /**
@@ -286,7 +319,7 @@ export const submitICR = async (submissionPayload) => {
   localStorage.setItem(STORAGE_INVENTORY, JSON.stringify(updatedInventory));
 
   const localStatus = JSON.parse(localStorage.getItem(STORAGE_STATUS) || '{}');
-  localStatus[String(udise)] = {
+  const statusEntry = {
     status: 'Completed',
     installedBy: installed_by,
     mobile: technician_mobile,
@@ -295,7 +328,14 @@ export const submitICR = async (submissionPayload) => {
     totalDevices: devices.length,
     devicesJson: JSON.stringify(devices)
   };
+  localStatus[String(udise)] = statusEntry;
   localStorage.setItem(STORAGE_STATUS, JSON.stringify(localStatus));
+
+  const cachedStatus = getCachedStatusMap();
+  cachedStatus[String(udise)] = statusEntry;
+  try {
+    localStorage.setItem(STORAGE_STATUS_CACHE, JSON.stringify(cachedStatus));
+  } catch (e) {}
 
   return {
     success: true,

@@ -7,46 +7,63 @@ import ReadOnlySubmissionView from './components/ReadOnlySubmissionView';
 import AdminDashboard from './components/AdminDashboard';
 import SettingsModal from './components/SettingsModal';
 import defaultSchools from './data/schools_master.json';
-import { fetchSchoolStatusMap, fetchMasterSchools, getApiUrl } from './services/api';
+import { fetchSchoolStatusMap, fetchMasterSchools, getApiUrl, getCachedStatusMap, getCachedMasterSchools } from './services/api';
 import { Search, ShieldCheck, Database, RefreshCw, AlertTriangle, Cloud } from 'lucide-react';
 
 export default function App() {
-  const [schools, setSchools] = useState(defaultSchools);
-  const [statusMap, setStatusMap] = useState({});
+  const [schools, setSchools] = useState(() => getCachedMasterSchools());
+  const [statusMap, setStatusMap] = useState(() => getCachedStatusMap());
   const [selectedSchool, setSelectedSchool] = useState(null);
   const [currentView, setCurrentView] = useState('technician'); // 'technician' | 'admin'
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isInitialSyncing, setIsInitialSyncing] = useState(true);
 
   const isApiConnected = Boolean(getApiUrl());
 
-  // Load both Master Schools and Status Map dynamically from Google Sheets
-  const refreshAllData = useCallback(async () => {
+  // Load real-time status first (fast), and update master schools in background
+  const refreshAllData = useCallback(async (isInitial = false) => {
+    if (isInitial) {
+      setIsInitialSyncing(true);
+    }
     setLoading(true);
     try {
-      // 1. Fetch dynamic master schools from Google Sheet (Master_Schools tab)
-      const dynamicSchools = await fetchMasterSchools();
-      if (dynamicSchools && dynamicSchools.length > 0) {
-        setSchools(dynamicSchools);
+      // 1. Fetch real-time status map FIRST (takes ~2-3s instead of 25s, guarantees accurate search status)
+      const map = await fetchSchoolStatusMap();
+      if (map && Object.keys(map).length > 0) {
+        setStatusMap(map);
       }
 
-      // 2. Fetch completion status map
-      const map = await fetchSchoolStatusMap();
-      setStatusMap(map);
+      // 2. Fetch dynamic master schools in background without blocking status view
+      fetchMasterSchools()
+        .then((dynamicSchools) => {
+          if (dynamicSchools && dynamicSchools.length > 0) {
+            setSchools(dynamicSchools);
+          }
+        })
+        .catch((err) => console.warn('Background master schools update note:', err));
     } catch (e) {
       console.error('Error refreshing data from Google Sheets:', e);
     } finally {
       setLoading(false);
+      setIsInitialSyncing(false);
     }
   }, []);
 
   useEffect(() => {
-    refreshAllData();
+    refreshAllData(true);
+
+    // Failsafe timer: If network takes > 7s (e.g. slow 2G), automatically unlock using cached data
+    const failsafeTimer = setTimeout(() => {
+      setIsInitialSyncing(false);
+    }, 7000);
+
+    return () => clearTimeout(failsafeTimer);
   }, [refreshAllData]);
 
   // Handle successful digitization
   const handleSubmissionSuccess = (udise) => {
-    refreshAllData();
+    refreshAllData(false);
   };
 
   // Calculate completed count
@@ -66,6 +83,7 @@ export default function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         completedCount={completedCount}
         totalSchools={schools.length}
+        isSyncing={loading}
       />
 
       {/* Prominent Warning Banner if Google Sheet is NOT connected */}
@@ -100,7 +118,7 @@ export default function App() {
                   Field Digitization Portal • Live Synchronization
                 </span>
                 <button
-                  onClick={refreshAllData}
+                  onClick={() => refreshAllData(false)}
                   title="Sync with Google Sheets"
                   className="p-1 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-200 transition-colors cursor-pointer"
                 >
@@ -115,14 +133,37 @@ export default function App() {
                 Search your school by <strong>UDISE Code</strong>, <strong>SNIL Code</strong>, or <strong>School Name</strong> to verify status and digitize device serial numbers.
               </p>
 
-              {/* Search Bar */}
+              {/* Search Bar or Smooth Sync Screen */}
               <div className="pt-2">
-                <SchoolSearch
-                  schools={schools}
-                  statusMap={statusMap}
-                  onSelectSchool={setSelectedSchool}
-                  selectedSchool={selectedSchool}
-                />
+                {isInitialSyncing ? (
+                  <div className="max-w-lg mx-auto p-6 sm:p-7 bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs text-center animate-in fade-in duration-300">
+                    <div className="h-12 w-12 sm:h-14 sm:w-14 mx-auto mb-3 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-800">
+                      <RefreshCw className="h-5 w-5 sm:h-6 sm:w-6 animate-spin text-slate-800" />
+                    </div>
+                    <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                      Synchronizing Real-Time Status
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                      Connecting with Google Sheets to verify live completion records across 679 Jharkhand schools...
+                    </p>
+                    <div className="w-full max-w-xs mx-auto bg-slate-100 rounded-full h-1.5 mt-4 overflow-hidden border border-slate-200/60">
+                      <div className="bg-slate-800 h-1.5 rounded-full w-2/3 animate-pulse"></div>
+                    </div>
+                    <div className="mt-3 flex items-center justify-center space-x-2 text-[11px] text-slate-500 font-medium">
+                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
+                      <span>Google Sheets Cloud Verification Active</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="animate-in fade-in duration-300">
+                    <SchoolSearch
+                      schools={schools}
+                      statusMap={statusMap}
+                      onSelectSchool={setSelectedSchool}
+                      selectedSchool={selectedSchool}
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
@@ -191,12 +232,22 @@ export default function App() {
           </div>
         ) : (
           /* Admin Dashboard View */
-          <AdminDashboard
-            schools={schools}
-            statusMap={statusMap}
-            onRefresh={refreshAllData}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-          />
+          isInitialSyncing ? (
+            <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-2xl border border-slate-200/80 shadow-xs text-center animate-in fade-in duration-300">
+              <div className="h-12 w-12 mx-auto mb-3 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-800">
+                <RefreshCw className="h-5 w-5 animate-spin text-slate-800" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">Synchronizing Project Analytics...</h3>
+              <p className="text-xs text-slate-500 mt-1">Fetching live installation records from Google Sheets</p>
+            </div>
+          ) : (
+            <AdminDashboard
+              schools={schools}
+              statusMap={statusMap}
+              onRefresh={() => refreshAllData(false)}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+            />
+          )
         )}
       </main>
 

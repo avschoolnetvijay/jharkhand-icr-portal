@@ -2,7 +2,7 @@ import React from 'react';
 import { Layers, BarChart2, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { getApiUrl } from '../services/api';
 
-export default function Header({ currentView, setCurrentView, onOpenSettings, completedCount, totalSchools = 679 }) {
+export default function Header({ currentView, setCurrentView, onOpenSettings, completedCount, totalSchools = 679, isSyncing = false }) {
   const isApiConnected = Boolean(getApiUrl());
   const percent = Math.round((completedCount / totalSchools) * 100) || 0;
 
@@ -35,16 +35,24 @@ export default function Header({ currentView, setCurrentView, onOpenSettings, co
             {/* Live Sheets Status Pill */}
             <button
               onClick={onOpenSettings}
-              className={`flex items-center space-x-1 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-                isApiConnected
-                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                  : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+              className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                !isApiConnected
+                  ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                  : isSyncing
+                  ? 'bg-slate-100 text-slate-800 border-slate-300'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
               }`}
-              title={isApiConnected ? 'Connected to Google Sheets' : 'Click to configure Google Sheets'}
+              title={isApiConnected ? (isSyncing ? 'Synchronizing with Google Sheets...' : 'Connected to Google Sheets') : 'Click to configure Google Sheets'}
             >
-              <span className={`h-2 w-2 rounded-full shrink-0 ${isApiConnected ? 'bg-emerald-600 animate-pulse' : 'bg-amber-500'}`}></span>
+              <span className={`h-2 w-2 rounded-full shrink-0 ${
+                !isApiConnected
+                  ? 'bg-amber-500'
+                  : isSyncing
+                  ? 'bg-blue-600 animate-ping'
+                  : 'bg-emerald-600'
+              }`}></span>
               <span className="text-[11px] sm:text-xs font-semibold">
-                {isApiConnected ? 'Live Sync' : 'Offline'}
+                {!isApiConnected ? 'Offline' : isSyncing ? 'Syncing...' : 'Live Sync'}
               </span>
             </button>
 
