@@ -92,11 +92,11 @@ export default function SettingsModal({ isOpen, onClose, onConfigSaved }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-xl border border-slate-200">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
           <div className="flex items-center space-x-2.5">
-            <div className="p-2 bg-brand-50 text-brand-600 rounded-xl">
+            <div className="p-2 bg-slate-100 text-slate-700 rounded-xl">
               <Cloud className="h-5 w-5" />
             </div>
             <div>
@@ -126,7 +126,7 @@ export default function SettingsModal({ isOpen, onClose, onConfigSaved }) {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://script.google.com/macros/s/.../exec"
-              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:bg-white focus:border-brand-500 outline-hidden"
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-xs font-mono focus:bg-white focus:border-slate-600 outline-hidden transition-all"
             />
             <p className="text-[11px] text-slate-400 mt-1">
               Refer to <code>GOOGLE_SHEETS_SETUP.md</code> to generate this URL in 2 minutes.
@@ -151,8 +151,8 @@ export default function SettingsModal({ isOpen, onClose, onConfigSaved }) {
           )}
 
           {/* Master Schools Seeding Section */}
-          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
-            <div className="flex items-center justify-between">
+          <div className="bg-slate-50 p-3.5 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-200 space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h4 className="text-xs font-bold text-slate-900">
                   Google Sheet Master_Schools Sync
@@ -165,14 +165,14 @@ export default function SettingsModal({ isOpen, onClose, onConfigSaved }) {
                 type="button"
                 onClick={handleSeedSchools}
                 disabled={seeding || !url.trim()}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs font-bold rounded-lg border border-brand-200 transition-colors disabled:opacity-40 cursor-pointer"
+                className="inline-flex items-center justify-center space-x-1.5 px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 text-xs font-semibold rounded-lg border border-slate-300 transition-colors disabled:opacity-40 cursor-pointer shadow-2xs"
               >
                 {seeding ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <UploadCloud className="h-3.5 w-3.5" />
+                  <UploadCloud className="h-3.5 w-3.5 text-slate-600" />
                 )}
-                <span>{seeding ? 'Pushing...' : 'Push 679 Schools to Sheet'}</span>
+                <span>{seeding ? 'Pushing...' : 'Push 679 Schools'}</span>
               </button>
             </div>
 
@@ -201,14 +201,14 @@ export default function SettingsModal({ isOpen, onClose, onConfigSaved }) {
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
               >
                 Close
               </button>
               <button
                 type="submit"
                 disabled={testing}
-                className="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-colors disabled:opacity-50 flex items-center space-x-1.5"
+                className="px-4 sm:px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl shadow-xs cursor-pointer transition-colors disabled:opacity-50 flex items-center space-x-1.5"
               >
                 {testing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 <span>{testing ? 'Testing...' : 'Save & Test Sync'}</span>
