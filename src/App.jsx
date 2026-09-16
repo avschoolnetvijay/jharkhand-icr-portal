@@ -1,20 +1,31 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import Sidebar from './components/Sidebar';
 import Header from './components/Header';
-import SchoolSearch from './components/SchoolSearch';
-import SchoolCard from './components/SchoolCard';
-import DigitizationForm from './components/DigitizationForm';
-import ReadOnlySubmissionView from './components/ReadOnlySubmissionView';
+import DashboardView from './components/DashboardView';
+import NewDataCollectionView from './components/NewDataCollectionView';
+import SchoolsDirectoryView from './components/SchoolsDirectoryView';
 import AdminDashboard from './components/AdminDashboard';
 import SettingsModal from './components/SettingsModal';
+import ReadOnlySubmissionView from './components/ReadOnlySubmissionView';
 import defaultSchools from './data/schools_master.json';
-import { fetchSchoolStatusMap, fetchMasterSchools, getApiUrl, getCachedStatusMap, getCachedMasterSchools } from './services/api';
-import { RefreshCw, AlertTriangle, Cloud } from 'lucide-react';
+import {
+  fetchSchoolStatusMap,
+  fetchMasterSchools,
+  getApiUrl,
+  getCachedStatusMap,
+  getCachedMasterSchools
+} from './services/api';
+import { RefreshCw, AlertTriangle, Cloud, Users, FileText, HelpCircle, X } from 'lucide-react';
 
 export default function App() {
   const [schools, setSchools] = useState(() => getCachedMasterSchools());
   const [statusMap, setStatusMap] = useState(() => getCachedStatusMap());
   const [selectedSchool, setSelectedSchool] = useState(null);
-  const [currentView, setCurrentView] = useState('technician'); // 'technician' | 'admin'
+  const [inspectingSchool, setInspectingSchool] = useState(null); // For viewing completed school details in modal
+
+  // Navigation View: 'dashboard' | 'new_entry' | 'my_entries' | 'pending_entries' | 'schools' | 'reports' | 'team' | 'documents' | 'help'
+  const [currentView, setCurrentView] = useState('dashboard');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isInitialSyncing, setIsInitialSyncing] = useState(true);
@@ -66,169 +77,311 @@ export default function App() {
     refreshAllData(false);
   };
 
-  // Calculate completed count
+  // Compute counts
   const completedCount = React.useMemo(() => {
     return Object.values(statusMap).filter((s) => s?.status === 'Completed').length;
   }, [statusMap]);
 
-  const selectedStatusInfo = selectedSchool ? statusMap[selectedSchool.udise] : null;
-  const isSchoolCompleted = selectedStatusInfo?.status === 'Completed';
+  const pendingCount = schools.length - completedCount;
+
+  // Handlers for starting entry or viewing
+  const handleDigitizeSchool = (school) => {
+    setSelectedSchool(school);
+    setCurrentView('new_entry');
+  };
+
+  const handleViewSchool = (school) => {
+    setInspectingSchool(school);
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-brand-500 selection:text-white">
-      {/* Top Header */}
-      <Header
+    <div className="min-h-screen bg-[#f8fafc] flex flex-row selection:bg-blue-600 selection:text-white font-sans">
+      {/* 1. Dark Navy Schoolnet Sidebar */}
+      <Sidebar
         currentView={currentView}
-        setCurrentView={setCurrentView}
+        setCurrentView={(view) => {
+          setCurrentView(view);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         completedCount={completedCount}
-        totalSchools={schools.length}
-        isSyncing={loading}
+        pendingCount={pendingCount}
       />
 
-      {/* Prominent Warning Banner if Google Sheet is NOT connected */}
-      {!isApiConnected && (
-        <div className="bg-amber-700 text-white px-4 py-2.5 shadow-xs border-b border-amber-800">
-          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
-            <div className="flex items-center space-x-2">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-200" />
-              <span>
-                <strong>Google Sheet Not Connected!</strong> Connect your Google Apps Script URL to enable live sync.
-              </span>
+      {/* 2. Main Content Container */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top Header */}
+        <Header
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          completedCount={completedCount}
+          totalSchools={schools.length}
+          isSyncing={loading}
+        />
+
+        {/* Prominent Warning Banner if Google Sheet is NOT connected */}
+        {!isApiConnected && (
+          <div className="bg-amber-700 text-white px-4 py-2.5 shadow-xs border-b border-amber-800">
+            <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
+              <div className="flex items-center space-x-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-200" />
+                <span>
+                  <strong>Google Sheet Not Connected!</strong> Connect your Google Apps Script URL to enable live cloud sync.
+                </span>
+              </div>
+              <button
+                onClick={() => setIsSettingsOpen(true)}
+                className="inline-flex items-center space-x-1.5 px-3 py-1 bg-white text-amber-900 font-bold rounded-lg hover:bg-amber-50 shadow-xs cursor-pointer transition-all"
+              >
+                <Cloud className="h-3.5 w-3.5 text-amber-700" />
+                <span>Connect Google Sheet</span>
+              </button>
             </div>
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="inline-flex items-center space-x-1.5 px-3 py-1 bg-white text-amber-900 font-bold rounded-lg hover:bg-amber-50 shadow-xs cursor-pointer transition-all"
-            >
-              <Cloud className="h-3.5 w-3.5 text-amber-700" />
-              <span>Connect Google Sheet</span>
-            </button>
+          </div>
+        )}
+
+        {/* Body Content Area */}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+          {isInitialSyncing ? (
+            /* Smooth Initial Sync Screen */
+            <div className="max-w-md mx-auto my-16 p-8 bg-white rounded-3xl border border-slate-200/80 shadow-xs text-center animate-in fade-in duration-300">
+              <div className="h-14 w-14 mx-auto mb-4 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-[#1d68e2]">
+                <RefreshCw className="h-7 w-7 animate-spin" />
+              </div>
+              <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                Synchronizing Real-Time Status
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                Connecting with Google Sheets to verify live installation records across 679 Jharkhand schools...
+              </p>
+              <div className="w-full max-w-xs mx-auto bg-slate-100 rounded-full h-1.5 mt-5 overflow-hidden border border-slate-200/60">
+                <div className="bg-[#1d68e2] h-1.5 rounded-full w-2/3 animate-pulse"></div>
+              </div>
+              <div className="mt-4 flex items-center justify-center space-x-2 text-[11px] text-slate-500 font-medium">
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>Google Sheets Cloud Verification Active</span>
+              </div>
+            </div>
+          ) : (
+            /* Views Switching */
+            <>
+              {/* VIEW 1: Dashboard */}
+              {currentView === 'dashboard' && (
+                <DashboardView
+                  schools={schools}
+                  statusMap={statusMap}
+                  onNavigate={setCurrentView}
+                  onViewSchool={handleViewSchool}
+                />
+              )}
+
+              {/* VIEW 2: New Entry (Stepper Flow) */}
+              {currentView === 'new_entry' && (
+                <NewDataCollectionView
+                  schools={schools}
+                  statusMap={statusMap}
+                  selectedSchool={selectedSchool}
+                  onSelectSchool={setSelectedSchool}
+                  onSubmissionSuccess={handleSubmissionSuccess}
+                  onNavigate={setCurrentView}
+                />
+              )}
+
+              {/* VIEW 3: My Entries (Completed Schools) */}
+              {currentView === 'my_entries' && (
+                <SchoolsDirectoryView
+                  schools={schools}
+                  statusMap={statusMap}
+                  initialFilter="COMPLETED"
+                  title="My Entries — Completed Schools"
+                  subtitle="Listing all successfully digitized schools with row-wise asset registers"
+                  onDigitizeSchool={handleDigitizeSchool}
+                  onViewSchool={handleViewSchool}
+                />
+              )}
+
+              {/* VIEW 4: Pending Entries */}
+              {currentView === 'pending_entries' && (
+                <SchoolsDirectoryView
+                  schools={schools}
+                  statusMap={statusMap}
+                  initialFilter="PENDING"
+                  title="Pending Entries — Awaiting Digitization"
+                  subtitle="Listing schools awaiting field installation completion entry"
+                  onDigitizeSchool={handleDigitizeSchool}
+                  onViewSchool={handleViewSchool}
+                />
+              )}
+
+              {/* VIEW 5: Schools Directory (All 679) */}
+              {currentView === 'schools' && (
+                <SchoolsDirectoryView
+                  schools={schools}
+                  statusMap={statusMap}
+                  initialFilter="ALL"
+                  title="Master School Directory (679 Schools)"
+                  subtitle="All 108 ICT Labs and 571 Smart Classes across Jharkhand"
+                  onDigitizeSchool={handleDigitizeSchool}
+                  onViewSchool={handleViewSchool}
+                />
+              )}
+
+              {/* VIEW 6: Reports & Analytics */}
+              {currentView === 'reports' && (
+                <AdminDashboard
+                  schools={schools}
+                  statusMap={statusMap}
+                  onRefresh={() => refreshAllData(false)}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
+                />
+              )}
+
+              {/* VIEW 7: Team Info */}
+              {currentView === 'team' && (
+                <div className="max-w-4xl mx-auto bg-white p-6 sm:p-8 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs space-y-6 animate-in fade-in duration-200">
+                  <div className="flex items-center space-x-3 border-b border-slate-100 pb-4">
+                    <div className="h-10 w-10 rounded-xl bg-blue-50 text-[#1d68e2] flex items-center justify-center">
+                      <Users className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">Project Operations Team</h3>
+                      <p className="text-xs text-slate-500">Jharkhand ICT 108 & SC 664 Installation Implementation</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                      <div className="font-bold text-slate-900">Vijay Kumar Ray</div>
+                      <div className="text-xs text-[#1d68e2] font-semibold">Project Manager</div>
+                      <div className="text-xs text-slate-500 mt-1">Project Oversight, Quality Verification & Data Governance</div>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                      <div className="font-bold text-slate-900">Field Engineering Network</div>
+                      <div className="text-xs text-emerald-700 font-semibold">24 Districts of Jharkhand</div>
+                      <div className="text-xs text-slate-500 mt-1">On-Site Hardware Installation, Lab Commissioning & ICR Reporting</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW 8: Documents */}
+              {currentView === 'documents' && (
+                <div className="max-w-4xl mx-auto bg-white p-6 sm:p-8 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs space-y-6 animate-in fade-in duration-200">
+                  <div className="flex items-center space-x-3 border-b border-slate-100 pb-4">
+                    <div className="h-10 w-10 rounded-xl bg-blue-50 text-[#1d68e2] flex items-center justify-center">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">Project Reference Documents</h3>
+                      <p className="text-xs text-slate-500">Guidelines, Schemas & Installation Protocols</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 text-xs">
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-slate-900">Row-Wise Asset Register Protocol</div>
+                        <div className="text-slate-500">1 Row per physical hardware asset in Google Sheet Device_Serial_Inventory</div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-semibold">Active</span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-slate-900">Date Format Standard</div>
+                        <div className="text-slate-500">Enforced dd-mmm-yyyy (e.g. 13-Sep-2026)</div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 font-semibold">Enforced</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW 9: Help & Support */}
+              {currentView === 'help' && (
+                <div className="max-w-4xl mx-auto bg-white p-6 sm:p-8 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs space-y-6 animate-in fade-in duration-200">
+                  <div className="flex items-center space-x-3 border-b border-slate-100 pb-4">
+                    <div className="h-10 w-10 rounded-xl bg-blue-50 text-[#1d68e2] flex items-center justify-center">
+                      <HelpCircle className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">Help & Support Desk</h3>
+                      <p className="text-xs text-slate-500">Technical assistance for ICR digitization portal</p>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-blue-50/60 border border-blue-200 text-xs text-slate-700 leading-relaxed space-y-2">
+                    <p>
+                      For duplicate serial alerts, master school corrections, or Google Apps Script Web App sync inquiries, please contact the Jharkhand ICT Project Operations team.
+                    </p>
+                    <p className="font-bold text-slate-900">
+                      Portal Version: 2.5 (Schoolnet Enterprise Edition)
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </main>
+
+        {/* Footer */}
+        <footer className="bg-white border-t border-slate-200 py-4 px-6 text-center text-xs text-slate-500">
+          <div className="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-2">
+            <span>
+              Schoolnet India • <strong>Jharkhand ICT 108 & SC 664 Project</strong>
+            </span>
+            <span className="italic text-[#0284c7]">
+              Together for Smarter Schools
+            </span>
+          </div>
+        </footer>
+      </div>
+
+      {/* Inspecting School Read-Only Modal */}
+      {inspectingSchool && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {inspectingSchool.school_name}
+                </h3>
+                <p className="text-xs text-slate-500 font-mono">
+                  UDISE: {inspectingSchool.udise} • SNIL: {inspectingSchool.snil} • {inspectingSchool.district}
+                </p>
+              </div>
+              <button
+                onClick={() => setInspectingSchool(null)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <ReadOnlySubmissionView
+              school={inspectingSchool}
+              statusInfo={statusMap[inspectingSchool.udise]}
+            />
+
+            <div className="flex justify-end pt-3 border-t border-slate-100">
+              <button
+                onClick={() => setInspectingSchool(null)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
-
-      {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        {currentView === 'technician' ? (
-          <div className="space-y-6 sm:space-y-8 animate-in fade-in duration-200">
-            {/* Hero Search Section */}
-            <div className="text-center max-w-3xl mx-auto space-y-2.5 pt-1 pb-3 sm:pb-4">
-              <div className="flex items-center justify-center space-x-2">
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-slate-200/80 text-slate-800 border border-slate-300/80 shadow-2xs">
-                  Field Digitization Portal • Live Synchronization
-                </span>
-                <button
-                  onClick={() => refreshAllData(false)}
-                  title="Sync with Google Sheets"
-                  className="p-1 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-200 transition-colors cursor-pointer"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-slate-700' : ''}`} />
-                </button>
-              </div>
-
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-                Installation Completion Report (ICR) Digitizer
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-600 font-normal">
-                Search your school by <strong>UDISE Code</strong>, <strong>SNIL Code</strong>, or <strong>School Name</strong> to verify status and digitize device serial numbers.
-              </p>
-
-              {/* Search Bar or Smooth Sync Screen */}
-              <div className="pt-2">
-                {isInitialSyncing ? (
-                  <div className="max-w-lg mx-auto p-6 sm:p-7 bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs text-center animate-in fade-in duration-300">
-                    <div className="h-12 w-12 sm:h-14 sm:w-14 mx-auto mb-3 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-800">
-                      <RefreshCw className="h-5 w-5 sm:h-6 sm:w-6 animate-spin text-slate-800" />
-                    </div>
-                    <h3 className="text-sm sm:text-base font-bold text-slate-900">
-                      Synchronizing Real-Time Status
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                      Connecting with Google Sheets to verify live completion records across 679 Jharkhand schools...
-                    </p>
-                    <div className="w-full max-w-xs mx-auto bg-slate-100 rounded-full h-1.5 mt-4 overflow-hidden border border-slate-200/60">
-                      <div className="bg-slate-800 h-1.5 rounded-full w-2/3 animate-pulse"></div>
-                    </div>
-                    <div className="mt-3 flex items-center justify-center space-x-2 text-[11px] text-slate-500 font-medium">
-                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
-                      <span>Google Sheets Cloud Verification Active</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="animate-in fade-in duration-300">
-                    <SchoolSearch
-                      schools={schools}
-                      statusMap={statusMap}
-                      onSelectSchool={setSelectedSchool}
-                      selectedSchool={selectedSchool}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* School Profile and Form / ReadOnly view */}
-            {selectedSchool ? (
-              <div className="space-y-6 max-w-5xl mx-auto">
-                {/* School Master Details & Status Card */}
-                <SchoolCard
-                  school={selectedSchool}
-                  statusInfo={selectedStatusInfo}
-                />
-
-                {/* Conditional View: Read-Only if Already Updated, Digitization Form if Pending */}
-                {isSchoolCompleted ? (
-                  <ReadOnlySubmissionView
-                    school={selectedSchool}
-                    statusInfo={selectedStatusInfo}
-                  />
-                ) : (
-                  <DigitizationForm
-                    school={selectedSchool}
-                    onSubmissionSuccess={handleSubmissionSuccess}
-                  />
-                )}
-              </div>
-            ) : null}
-          </div>
-        ) : (
-          /* Admin Dashboard View */
-          isInitialSyncing ? (
-            <div className="max-w-md mx-auto my-12 p-8 bg-white rounded-2xl border border-slate-200/80 shadow-xs text-center animate-in fade-in duration-300">
-              <div className="h-12 w-12 mx-auto mb-3 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-800">
-                <RefreshCw className="h-5 w-5 animate-spin text-slate-800" />
-              </div>
-              <h3 className="text-base font-bold text-slate-900">Synchronizing Project Analytics...</h3>
-              <p className="text-xs text-slate-500 mt-1">Fetching live installation records from Google Sheets</p>
-            </div>
-          ) : (
-            <AdminDashboard
-              schools={schools}
-              statusMap={statusMap}
-              onRefresh={() => refreshAllData(false)}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-            />
-          )
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="bg-white border-t border-slate-200/80 py-6 mt-12 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-wrap justify-between items-center gap-2">
-          <span>
-            Jharkhand ICT & Smart Class Project • <strong>108 ICT Labs & 664 Smart Classes</strong>
-          </span>
-          <span>
-            Row-Wise Asset Register System • Real-Time Cloud Sync
-          </span>
-        </div>
-      </footer>
 
       {/* Settings Modal */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        onConfigSaved={refreshAllData}
+        onConfigSaved={() => refreshAllData(false)}
       />
     </div>
   );
