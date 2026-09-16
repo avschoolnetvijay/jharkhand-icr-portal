@@ -396,97 +396,22 @@ export const getAllInventoryRows = async () => {
 };
 
 /**
- * Export Row-wise Data to Excel (.xlsx)
+ * Export Styled Reports using excelStyles.js
+ */
+export {
+  exportFullProjectToExcel,
+  exportSingleSchoolICRToExcel,
+  exportDistrictReportToExcel,
+  exportCategoryReportToExcel,
+  exportFilteredSchoolsToExcel
+} from './excelStyles';
+
+import { exportFullProjectToExcel } from './excelStyles';
+
+/**
+ * Backwards compatible export function using new styled Excel engine
  */
 export const exportInventoryToExcel = (inventoryRows, schoolsMaster, statusMap) => {
-  const wb = XLSX.utils.book_new();
-
-  // 1. Sheet: Device Serial Inventory (ROW-WISE ASSET REGISTER)
-  const formattedRows = inventoryRows.map((row, idx) => ({
-    'SL No': idx + 1,
-    'Submission ID': row.Submission_ID || `SUB-${idx + 1}`,
-    'UDISE Code': row.UDISE_Code,
-    'SNIL Code': row.SNIL_Code,
-    'School Name': row.School_Name,
-    'District': row.District,
-    'Block Name': row.Block_Name,
-    'Lab Category': row.Lab_Category,
-    'Device / Item Name': row.Item_Name,
-    'Make & Model': row.Make_And_Model,
-    'Serial Number': row.Serial_Number,
-    'Installed': row.Installed_Status || 'Yes',
-    'Working': row.Working_Status || 'Yes',
-    'Installation Date': formatDateDDMMMYYYY(row.Installation_Date),
-    'Installed By': row.Installed_By || row.Updated_By_Name || '',
-    'Mobile Number': row.Updated_By_Mobile || '',
-    'Submission Timestamp': row.Submission_Timestamp || ''
-  }));
-
-  const wsInventory = XLSX.utils.json_to_sheet(formattedRows);
-
-  wsInventory['!cols'] = [
-    { wch: 8 },  // SL No
-    { wch: 18 }, // Submission ID
-    { wch: 14 }, // UDISE
-    { wch: 18 }, // SNIL
-    { wch: 38 }, // School Name
-    { wch: 16 }, // District
-    { wch: 18 }, // Block
-    { wch: 25 }, // Lab Category
-    { wch: 30 }, // Device Name
-    { wch: 25 }, // Make & Model
-    { wch: 22 }, // Serial Number
-    { wch: 10 }, // Installed
-    { wch: 10 }, // Working
-    { wch: 16 }, // Installation Date
-    { wch: 22 }, // Installed By
-    { wch: 15 }, // Mobile
-    { wch: 24 }, // Timestamp
-  ];
-
-  XLSX.utils.book_append_sheet(wb, wsInventory, 'Device_Serial_Register');
-
-  // 2. Sheet: School Summary Status (Completed vs Pending)
-  const summaryRows = schoolsMaster.map((sch, idx) => {
-    const statusInfo = statusMap[String(sch.udise)] || {};
-    const isCompleted = statusInfo.status === 'Completed';
-
-    return {
-      'SL No': idx + 1,
-      'UDISE Code': sch.udise,
-      'SNIL Code': sch.snil,
-      'School Name': sch.school_name,
-      'District': sch.district,
-      'Block Name': sch.block,
-      'Lab Category': sch.category,
-      'Total Required Devices': sch.device_count,
-      'Status': isCompleted ? 'Completed' : 'Pending',
-      'Installed By': statusInfo.installedBy || statusInfo.updatedBy || '-',
-      'Mobile Number': statusInfo.mobile || '-',
-      'Installation Date': statusInfo.date ? formatDateDDMMMYYYY(statusInfo.date) : '-',
-      'Submission Timestamp': statusInfo.timestamp || '-'
-    };
-  });
-
-  const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
-  wsSummary['!cols'] = [
-    { wch: 8 },  // SL No
-    { wch: 14 }, // UDISE
-    { wch: 18 }, // SNIL
-    { wch: 38 }, // School Name
-    { wch: 16 }, // District
-    { wch: 18 }, // Block
-    { wch: 25 }, // Category
-    { wch: 15 }, // Total Devices
-    { wch: 14 }, // Status
-    { wch: 22 }, // Installed By
-    { wch: 15 }, // Mobile
-    { wch: 16 }, // Installation Date
-    { wch: 24 }, // Timestamp
-  ];
-
-  XLSX.utils.book_append_sheet(wb, wsSummary, 'School_Status_Summary');
-
-  const dateStr = formatDateDDMMMYYYY(new Date());
-  XLSX.writeFile(wb, `ICR_Device_Serial_Register_Jharkhand_${dateStr}.xlsx`);
+  return exportFullProjectToExcel(inventoryRows, schoolsMaster, statusMap);
 };
+

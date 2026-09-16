@@ -12,7 +12,15 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { CATEGORY_LABELS } from '../data/deviceSchemas';
-import { exportInventoryToExcel, getAllInventoryRows, formatDateDDMMMYYYY } from '../services/api';
+import {
+  exportInventoryToExcel,
+  getAllInventoryRows,
+  formatDateDDMMMYYYY,
+  exportFullProjectToExcel,
+  exportDistrictReportToExcel,
+  exportCategoryReportToExcel,
+  exportFilteredSchoolsToExcel
+} from '../services/api';
 
 export default function AdminDashboard({
   schools,
@@ -358,11 +366,20 @@ export default function AdminDashboard({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
         {/* District-wise Progress */}
         <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm sm:text-base font-bold text-slate-900">
-              District-Wise Status ({districtAnalytics.length} Districts)
-            </h3>
-            <span className="text-xs text-slate-400 font-medium">Sorted by Done</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                District-Wise Status ({districtAnalytics.length} Districts)
+              </h3>
+              <span className="text-xs text-slate-400 font-medium">Sorted by Done</span>
+            </div>
+            <button
+              onClick={() => exportDistrictReportToExcel(districtAnalytics)}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#1d68e2] text-xs font-bold transition-colors cursor-pointer border border-blue-200"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Export District (.xlsx)</span>
+            </button>
           </div>
 
           <div className="overflow-y-auto max-h-80 border border-slate-200 rounded-xl">
@@ -407,11 +424,20 @@ export default function AdminDashboard({
 
         {/* Category-wise Breakdown */}
         <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm sm:text-base font-bold text-slate-900">
-              Lab Allocation Category Breakdown
-            </h3>
-            <span className="text-xs text-slate-400 font-medium">5 Lab Formats</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                Lab Allocation Category Breakdown
+              </h3>
+              <span className="text-xs text-slate-400 font-medium">5 Lab Formats</span>
+            </div>
+            <button
+              onClick={() => exportCategoryReportToExcel(categoryAnalytics)}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-[#1d68e2] text-xs font-bold transition-colors cursor-pointer border border-blue-200"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Export Category (.xlsx)</span>
+            </button>
           </div>
 
           <div className="space-y-3">
@@ -444,20 +470,35 @@ export default function AdminDashboard({
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-4 sm:p-6 border-b border-slate-200">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
-            <h3 className="text-sm sm:text-base font-bold text-slate-900">
-              Master School Directory ({filteredSchools.length} Filtered / {schools.length} Total)
-            </h3>
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                Master School Directory ({filteredSchools.length} Filtered / {schools.length} Total)
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Filtered view by district, lab format, and status
+              </p>
+            </div>
 
-            {/* Quick Search */}
-            <div className="relative w-full sm:w-72">
-              <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search UDISE, SNIL, Name..."
-                className="w-full pl-9 pr-3 py-2 text-base sm:text-xs bg-slate-50 rounded-xl border border-slate-200 focus:bg-white outline-hidden"
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => exportFilteredSchoolsToExcel(filteredSchools, statusMap, `Filtered Schools (${filteredSchools.length})`)}
+                className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold transition-colors cursor-pointer border border-emerald-200"
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span>Export Filtered ({filteredSchools.length}) (.xlsx)</span>
+              </button>
+
+              {/* Quick Search */}
+              <div className="relative w-full sm:w-64">
+                <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search UDISE, SNIL, Name..."
+                  className="w-full pl-9 pr-3 py-2 text-base sm:text-xs bg-slate-50 rounded-xl border border-slate-200 focus:bg-white outline-hidden"
+                />
+              </div>
             </div>
           </div>
 

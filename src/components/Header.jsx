@@ -27,12 +27,8 @@ export default function Header({
 
             <div className="flex items-center space-x-2 truncate">
               <h1 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate">
-                Data Collection Portal
+                ICT 108 & SC 664 Project Digitization
               </h1>
-              <span className="text-slate-300 hidden sm:inline">|</span>
-              <span className="text-xs sm:text-sm font-medium text-slate-500 hidden sm:inline truncate">
-                ICT 108 & SC 664 Project
-              </span>
             </div>
           </div>
 

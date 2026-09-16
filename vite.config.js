@@ -9,11 +9,12 @@ export default defineConfig({
     open: true
   },
   build: {
+    chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom'],
-          xlsx: ['xlsx'],
+          xlsx: ['xlsx-js-style'],
           icons: ['lucide-react']
         }
       }
