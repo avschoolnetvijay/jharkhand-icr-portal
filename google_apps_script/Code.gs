@@ -169,6 +169,46 @@ function doGet(e) {
       return jsonResponse({ success: true, exists: false });
     }
 
+    // 5. Real-time Batch Serial Lookup (Verify all form serials in 1 fast call)
+    if (action === 'checkBatchSerials') {
+      const serialsParam = (e.parameter.serials || '').trim();
+      const list = serialsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+      const inventorySheet = getOrCreateSheet(ss, SHEET_INVENTORY);
+      const data = inventorySheet.getDataRange().getValues();
+      const matches = [];
+
+      if (data.length > 1 && list.length > 0) {
+        const serialSet = new Set(list);
+        for (let i = 1; i < data.length; i++) {
+          const row = data[i];
+          const sn = String(row[9] || '').trim().toUpperCase();
+          if (serialSet.has(sn)) {
+            matches.push({
+              serialNumber: sn,
+              udise: row[1],
+              snil: row[2],
+              schoolName: row[3],
+              district: row[4],
+              block: row[5],
+              category: row[6],
+              itemName: row[7],
+              makeModel: row[8],
+              installDate: formatDDMMMYYYY(row[12]),
+              installedBy: row[13],
+              mobile: row[14],
+              timestamp: row[15]
+            });
+          }
+        }
+      }
+
+      return jsonResponse({
+        success: true,
+        exists: matches.length > 0,
+        matches: matches
+      });
+    }
+
     return jsonResponse({
       success: true,
       message: 'ICR Digitization Portal Google Apps Script API is Live!'
@@ -274,7 +314,7 @@ function doPost(e) {
 
     const payloadSeen = new Set();
     for (let d of devices) {
-      const sn = String(d.serial_number || '').trim().toUpperCase();
+      const sn = String(d.serial_number || d.serial || '').trim().toUpperCase();
       if (!sn) continue;
 
       if (payloadSeen.has(sn)) {
@@ -318,9 +358,9 @@ function doPost(e) {
         district,
         block,
         category,
-        d.item_name || '',
-        d.make_model || '',
-        String(d.serial_number || '').trim().toUpperCase(),
+        d.item_name || d.name || '',
+        d.make_model || d.make || '',
+        String(d.serial_number || d.serial || '').trim().toUpperCase(),
         'Yes', // Installed
         'Yes', // Working
         installDate, // dd-mmm-yyyy format

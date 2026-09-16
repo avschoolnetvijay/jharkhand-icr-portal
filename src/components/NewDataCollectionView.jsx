@@ -20,6 +20,8 @@ import {
 import { CATEGORY_LABELS, getCategoryDevices } from '../data/deviceSchemas';
 import {
   checkSerialDuplicate,
+  verifyAllSerialsBeforeSubmit,
+  syncRegisteredSerials,
   submitICR,
   formatDateDDMMMYYYY,
   getAllInventoryRows
@@ -51,9 +53,15 @@ export default function NewDataCollectionView({
   const [fieldErrors, setFieldErrors] = useState({});
   const [duplicateDetails, setDuplicateDetails] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionStatusText, setSubmissionStatusText] = useState('');
   const [checkingSerialId, setCheckingSerialId] = useState(null);
   const [submissionSuccessData, setSubmissionSuccessData] = useState(null);
   const [isExportingMaster, setIsExportingMaster] = useState(false);
+
+  // Background refresh of registered serials registry on mount
+  useEffect(() => {
+    syncRegisteredSerials().catch(() => {});
+  }, []);
 
   // When selectedSchool changes, initialize device list
   useEffect(() => {
@@ -138,12 +146,59 @@ export default function NewDataCollectionView({
     ];
   }, [selectedSchool, deviceList]);
 
-  // Serial Change handler (Force Uppercase)
+  // Serial Change handler (Force Uppercase & Instant Local Validation)
   const handleSerialChange = (id, val) => {
     const upperVal = val.trim().toUpperCase();
     setSerialValues((prev) => ({ ...prev, [id]: upperVal }));
 
-    // Clear error & duplicate details for this field
+    // Incomplete or empty: clear error & duplicate details
+    if (!upperVal || upperVal.length < 3) {
+      if (fieldErrors[id]) {
+        setFieldErrors((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+      if (duplicateDetails[id]) {
+        setDuplicateDetails((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+      return;
+    }
+
+    // 1. Instant intra-form duplicate check
+    const duplicateId = Object.keys(serialValues).find(
+      (key) => key !== id && serialValues[key] === upperVal
+    );
+    if (duplicateId) {
+      const otherDevice = deviceList.find((d) => d.id === duplicateId);
+      const otherName = otherDevice?.itemName || otherDevice?.label || otherDevice?.item_name || 'another device';
+      setFieldErrors((prev) => ({
+        ...prev,
+        [id]: `Duplicate! Same serial already entered for ${otherName} in this form.`
+      }));
+      return;
+    }
+
+    // 2. Instant local database check (0ms synchronous lookup)
+    const res = checkSerialDuplicate(upperVal, selectedSchool?.udise);
+    if (res.exists) {
+      setDuplicateDetails((prev) => ({
+        ...prev,
+        [id]: res.match
+      }));
+      setFieldErrors((prev) => ({
+        ...prev,
+        [id]: `Duplicate! Serial already registered in ${res.match.schoolName}`
+      }));
+      return;
+    }
+
+    // Clean field
     if (fieldErrors[id]) {
       setFieldErrors((prev) => {
         const next = { ...prev };
@@ -160,13 +215,14 @@ export default function NewDataCollectionView({
     }
   };
 
-  // Real-time serial duplicate check on blur
-  const handleSerialBlur = async (id, currentVal) => {
-    if (!currentVal || !selectedSchool) return;
+  // Instant serial duplicate check on blur (0ms, no network delay or spinning)
+  const handleSerialBlur = (id, currentVal) => {
+    if (!currentVal || currentVal.trim().length < 3 || !selectedSchool) return;
+    const upperVal = currentVal.trim().toUpperCase();
 
-    // 1. Intra-form duplicate check (same serial entered twice in current form)
+    // 1. Intra-form duplicate check
     const duplicateId = Object.keys(serialValues).find(
-      (key) => key !== id && serialValues[key] === currentVal
+      (key) => key !== id && serialValues[key] === upperVal
     );
     if (duplicateId) {
       const otherDevice = deviceList.find((d) => d.id === duplicateId);
@@ -178,36 +234,21 @@ export default function NewDataCollectionView({
       return;
     }
 
-    // 2. Cross-school duplicate check against Google Sheets
-    setCheckingSerialId(id);
-    try {
-      const res = await checkSerialDuplicate(currentVal, selectedSchool.udise);
-      if (res.exists) {
-        setDuplicateDetails((prev) => ({
-          ...prev,
-          [id]: res.match
-        }));
-        setFieldErrors((prev) => ({
-          ...prev,
-          [id]: `Duplicate! Serial already registered in ${res.match.schoolName}`
-        }));
-      } else {
-        if (duplicateDetails[id]) {
-          setDuplicateDetails((prev) => {
-            const next = { ...prev };
-            delete next[id];
-            return next;
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('Duplicate check warning:', e);
-    } finally {
-      setCheckingSerialId(null);
+    // 2. Instant registry check
+    const res = checkSerialDuplicate(upperVal, selectedSchool.udise);
+    if (res.exists) {
+      setDuplicateDetails((prev) => ({
+        ...prev,
+        [id]: res.match
+      }));
+      setFieldErrors((prev) => ({
+        ...prev,
+        [id]: `Duplicate! Serial already registered in ${res.match.schoolName}`
+      }));
     }
   };
 
-  // Form Submission
+  // Form Submission with Strict Pre-Submission Zero-Duplicate Verification
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -221,9 +262,9 @@ export default function NewDataCollectionView({
       return;
     }
 
-    // Validation
+    // 1. Mandatory Field Validations
     const errors = {};
-    if (!installedBy.trim()) errors['installedBy'] = 'Technician name is required.';
+    if (!installedBy.trim()) errors['installedBy'] = 'Installation team name is required.';
     if (!techMobile.trim()) errors['techMobile'] = 'Mobile number is required.';
     if (!installDate) errors['installDate'] = 'Installation date is required.';
 
@@ -241,9 +282,68 @@ export default function NewDataCollectionView({
       return;
     }
 
+    // 2. Immediate Block if any duplicate errors are already displayed
+    if (Object.keys(duplicateDetails).length > 0) {
+      const firstDup = Object.values(duplicateDetails)[0];
+      alert(
+        `DUPLICATE SERIAL DETECTED!\n\n` +
+        `Serial: ${firstDup.serialNumber}\n` +
+        `School: ${firstDup.schoolName} (UDISE: ${firstDup.udise})\n` +
+        `Installed By: ${firstDup.installedBy} (Mobile: ${firstDup.mobile})\n\n` +
+        `Submission blocked to guarantee zero duplicates. Please correct this serial.`
+      );
+      return;
+    }
+
     setIsSubmitting(true);
+    setSubmissionStatusText('Verifying all serial numbers against database (Zero Duplicate Check)...');
 
     try {
+      // 3. Pre-Submission Rigorous Verification (Fresh Google Sheets & Database Check)
+      const verification = await verifyAllSerialsBeforeSubmit(deviceList, serialValues, selectedSchool);
+      if (!verification.valid) {
+        setIsSubmitting(false);
+        setSubmissionStatusText('');
+
+        if (verification.type === 'intra_form') {
+          alert(`CANNOT SUBMIT: ${verification.message}`);
+          return;
+        }
+
+        if (verification.type === 'already_registered' && verification.duplicates) {
+          const newErrors = { ...fieldErrors };
+          const newDuplicates = { ...duplicateDetails };
+
+          verification.duplicates.forEach((dup) => {
+            newDuplicates[dup.id] = dup.match;
+            newErrors[dup.id] = `Duplicate! Serial already registered in ${dup.match.schoolName}`;
+          });
+
+          setDuplicateDetails(newDuplicates);
+          setFieldErrors(newErrors);
+
+          const firstDup = verification.duplicates[0];
+          alert(
+            `SUBMISSION BLOCKED: DUPLICATE SERIAL DETECTED!\n\n` +
+            `Serial Number: ${firstDup.serialNumber}\n` +
+            `Device: ${firstDup.deviceName}\n` +
+            `Already Registered in: ${firstDup.match.schoolName} (UDISE: ${firstDup.match.udise})\n` +
+            `Installed By: ${firstDup.match.installedBy} (Mobile: ${firstDup.match.mobile})\n` +
+            `Installation Date: ${firstDup.match.date}\n\n` +
+            `To guarantee zero duplicates, this school cannot be submitted until all serials are unique.`
+          );
+
+          // Smooth scroll to the conflicting device card
+          const targetEl = document.getElementById(`device-card-${firstDup.id}`);
+          if (targetEl) {
+            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          return;
+        }
+      }
+
+      setSubmissionStatusText('Submitting & Digitizing ICR to Google Sheets...');
+
       const submissionPayload = {
         udise: selectedSchool.udise,
         snil: selectedSchool.snil,
@@ -280,6 +380,7 @@ export default function NewDataCollectionView({
       alert(`Submission Error: ${err.message}`);
     } finally {
       setIsSubmitting(false);
+      setSubmissionStatusText('');
     }
   };
 
@@ -597,6 +698,7 @@ export default function NewDataCollectionView({
                           return (
                             <div
                               key={dev.id}
+                              id={`device-card-${dev.id}`}
                               className={`p-3.5 rounded-2xl border transition-all ${
                                 duplicateInfo
                                   ? 'border-red-400 bg-red-50/30 ring-2 ring-red-200'
@@ -706,7 +808,7 @@ export default function NewDataCollectionView({
                     {isSubmitting ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Submitting to Google Sheets...</span>
+                        <span>{submissionStatusText || 'Submitting to Google Sheets...'}</span>
                       </>
                     ) : (
                       <>
