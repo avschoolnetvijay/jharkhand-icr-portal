@@ -23,8 +23,8 @@ export default function App() {
   const [selectedSchool, setSelectedSchool] = useState(null);
   const [inspectingSchool, setInspectingSchool] = useState(null); // For viewing completed school details in modal
 
-  // Navigation View: 'dashboard' | 'new_entry' | 'my_entries' | 'pending_entries' | 'schools' | 'reports' | 'team' | 'documents' | 'help'
-  const [currentView, setCurrentView] = useState('dashboard');
+  // Navigation View: 'new_entry' (default) | 'dashboard' | 'reports'
+  const [currentView, setCurrentView] = useState('new_entry');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);

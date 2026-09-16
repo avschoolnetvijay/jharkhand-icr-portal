@@ -7,6 +7,7 @@ import {
   Plus,
   FileSpreadsheet,
   FileCheck,
+  FileEdit,
   Eye,
   ArrowRight,
   Download
@@ -43,37 +44,20 @@ export default function DashboardView({
     };
   }, [schools, statusMap]);
 
-  // Recent Submissions (schools marked completed or latest in statusMap)
+  // Recent Submissions (ONLY actually submitted completed schools from Google Sheets)
   const recentSubmissions = useMemo(() => {
-    const completedList = schools
+    return schools
       .filter((s) => statusMap[s.udise]?.status === 'Completed')
       .map((s) => {
         const info = statusMap[s.udise] || {};
         return {
           ...s,
           installedBy: info.installedBy || info.updatedBy || '-',
-          date: info.date ? formatDateDDMMMYYYY(info.date) : '15-Sep-2026',
+          date: info.date ? formatDateDDMMMYYYY(info.date) : '-',
           status: 'Completed',
           totalDevices: info.totalDevices || (s.category === 'SMART_ONLY' ? 4 : 12)
         };
       });
-
-    // If fewer than 5 completed, add some sample pending schools to display clean rows like mockup
-    if (completedList.length < 5) {
-      const pendingSamples = schools
-        .filter((s) => !statusMap[s.udise] || statusMap[s.udise]?.status !== 'Completed')
-        .slice(0, 5 - completedList.length)
-        .map((s) => ({
-          ...s,
-          installedBy: '-',
-          date: 'Pending',
-          status: 'Pending',
-          totalDevices: s.category === 'SMART_ONLY' ? 4 : 12
-        }));
-      return [...completedList, ...pendingSamples];
-    }
-
-    return completedList.slice(0, 5);
   }, [schools, statusMap]);
 
   // Excel Export
@@ -174,7 +158,7 @@ export default function DashboardView({
               </p>
             </div>
             <button
-              onClick={() => onNavigate('my_entries')}
+              onClick={() => onNavigate('reports')}
               className="text-xs font-bold text-[#1d68e2] hover:text-blue-800 flex items-center space-x-1 cursor-pointer"
             >
               <span>View All</span>
@@ -196,9 +180,15 @@ export default function DashboardView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
-                {recentSubmissions.map((sch, idx) => {
-                  const isDone = sch.status === 'Completed';
-                  return (
+                {recentSubmissions.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <p className="text-sm font-semibold">No completed submissions found yet</p>
+                      <p className="text-xs text-slate-400 mt-1">Submitted installation records will appear here.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  recentSubmissions.map((sch, idx) => (
                     <tr key={sch.udise + idx} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-3 px-4 text-slate-400 font-mono">{idx + 1}</td>
                       <td className="py-3 px-4 font-mono font-bold text-slate-800">
@@ -213,33 +203,22 @@ export default function DashboardView({
                         {sch.date}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {isDone ? (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
-                            Completed
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 mr-1.5"></span>
-                            Pending
-                          </span>
-                        )}
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
+                          Completed
+                        </span>
                       </td>
                       <td className="py-3 px-4 text-right whitespace-nowrap">
                         <button
                           onClick={() => onViewSchool(sch)}
-                          className={`text-xs font-bold px-3 py-1 rounded-lg cursor-pointer transition-colors ${
-                            isDone
-                              ? 'text-[#1d68e2] hover:bg-blue-50'
-                              : 'bg-[#1d68e2] text-white hover:bg-blue-700'
-                          }`}
+                          className="text-xs font-bold px-3 py-1 rounded-lg cursor-pointer transition-colors text-[#1d68e2] hover:bg-blue-50"
                         >
-                          {isDone ? 'View' : 'Digitize'}
+                          View
                         </button>
                       </td>
                     </tr>
-                  );
-                })}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -252,22 +231,13 @@ export default function DashboardView({
             <h3 className="text-base font-bold text-slate-900">Quick Actions</h3>
 
             <div className="space-y-2.5">
-              {/* Primary Action: New Data Collection */}
+              {/* Primary Action: Digitization Link */}
               <button
                 onClick={() => onNavigate('new_entry')}
                 className="w-full py-3 px-4 rounded-xl bg-[#1d68e2] hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-bold shadow-sm flex items-center justify-center space-x-2 transition-all cursor-pointer"
               >
-                <Plus className="h-4 w-4" />
-                <span>+ New Data Collection</span>
-              </button>
-
-              {/* View My Entries */}
-              <button
-                onClick={() => onNavigate('my_entries')}
-                className="w-full py-2.5 px-4 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200 flex items-center justify-center space-x-2 transition-all cursor-pointer"
-              >
-                <FileCheck className="h-4 w-4 text-emerald-600" />
-                <span>View My Entries ({metrics.completedCount})</span>
+                <FileEdit className="h-4 w-4" />
+                <span>Digitization Link</span>
               </button>
 
               {/* Download Report */}
