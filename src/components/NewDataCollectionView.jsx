@@ -49,6 +49,7 @@ export default function NewDataCollectionView({
   const [deviceList, setDeviceList] = useState([]);
   const [serialValues, setSerialValues] = useState({});
   const [fieldErrors, setFieldErrors] = useState({});
+  const [duplicateDetails, setDuplicateDetails] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [checkingSerialId, setCheckingSerialId] = useState(null);
   const [submissionSuccessData, setSubmissionSuccessData] = useState(null);
@@ -65,11 +66,13 @@ export default function NewDataCollectionView({
       });
       setSerialValues(initialSerials);
       setFieldErrors({});
+      setDuplicateDetails({});
       setSubmissionSuccessData(null);
     } else {
       setDeviceList([]);
       setSerialValues({});
       setFieldErrors({});
+      setDuplicateDetails({});
     }
   }, [selectedSchool]);
 
@@ -140,9 +143,16 @@ export default function NewDataCollectionView({
     const upperVal = val.trim().toUpperCase();
     setSerialValues((prev) => ({ ...prev, [id]: upperVal }));
 
-    // Clear error for this field
+    // Clear error & duplicate details for this field
     if (fieldErrors[id]) {
       setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+    if (duplicateDetails[id]) {
+      setDuplicateDetails((prev) => {
         const next = { ...prev };
         delete next[id];
         return next;
@@ -159,9 +169,11 @@ export default function NewDataCollectionView({
       (key) => key !== id && serialValues[key] === currentVal
     );
     if (duplicateId) {
+      const otherDevice = deviceList.find((d) => d.id === duplicateId);
+      const otherName = otherDevice?.itemName || otherDevice?.label || otherDevice?.item_name || 'another device';
       setFieldErrors((prev) => ({
         ...prev,
-        [id]: `Duplicate! Same serial entered for another device in this form.`
+        [id]: `Duplicate! Same serial already entered for ${otherName} in this form.`
       }));
       return;
     }
@@ -171,10 +183,22 @@ export default function NewDataCollectionView({
     try {
       const res = await checkSerialDuplicate(currentVal, selectedSchool.udise);
       if (res.exists) {
+        setDuplicateDetails((prev) => ({
+          ...prev,
+          [id]: res.match
+        }));
         setFieldErrors((prev) => ({
           ...prev,
-          [id]: `Duplicate! Serial already registered in ${res.match.schoolName} (${res.match.udise})`
+          [id]: `Duplicate! Serial already registered in ${res.match.schoolName}`
         }));
+      } else {
+        if (duplicateDetails[id]) {
+          setDuplicateDetails((prev) => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+        }
       }
     } catch (e) {
       console.warn('Duplicate check warning:', e);
@@ -566,6 +590,7 @@ export default function NewDataCollectionView({
                         {sec.devices.map((dev) => {
                           const isChecking = checkingSerialId === dev.id;
                           const hasError = fieldErrors[dev.id];
+                          const duplicateInfo = duplicateDetails[dev.id];
                           const val = serialValues[dev.id] || '';
                           const globalIdx = deviceList.findIndex((d) => d.id === dev.id);
 
@@ -573,7 +598,9 @@ export default function NewDataCollectionView({
                             <div
                               key={dev.id}
                               className={`p-3.5 rounded-2xl border transition-all ${
-                                hasError
+                                duplicateInfo
+                                  ? 'border-red-400 bg-red-50/30 ring-2 ring-red-200'
+                                  : hasError
                                   ? 'border-red-300 bg-red-50/20'
                                   : val
                                   ? 'border-emerald-200 bg-emerald-50/10'
@@ -612,11 +639,47 @@ export default function NewDataCollectionView({
                                 )}
                               </div>
 
-                              {hasError && (
+                              {duplicateInfo ? (
+                                <div className="mt-2.5 p-3 rounded-xl bg-rose-50/95 border border-rose-200 text-xs text-rose-950 space-y-1.5 animate-in fade-in duration-200">
+                                  <div className="flex items-center space-x-1.5 font-bold text-rose-700">
+                                    <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                                    <span>Duplicate Serial Already Registered!</span>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-[11px] pt-1.5 border-t border-rose-200/70">
+                                    <div>
+                                      <span className="text-rose-600 font-semibold">District:</span>{' '}
+                                      <strong className="text-slate-900">{duplicateInfo.district}</strong>
+                                    </div>
+                                    <div>
+                                      <span className="text-rose-600 font-semibold">School:</span>{' '}
+                                      <strong className="text-slate-900">{duplicateInfo.schoolName}</strong>
+                                    </div>
+                                    <div>
+                                      <span className="text-rose-600 font-semibold">UDISE:</span>{' '}
+                                      <strong className="text-slate-900 font-mono">{duplicateInfo.udise}</strong>
+                                    </div>
+                                    <div>
+                                      <span className="text-rose-600 font-semibold">Installed By:</span>{' '}
+                                      <strong className="text-slate-900">{duplicateInfo.installedBy || '-'}</strong>
+                                    </div>
+                                    <div>
+                                      <span className="text-rose-600 font-semibold">Date:</span>{' '}
+                                      <strong className="text-slate-900">{duplicateInfo.date || '-'}</strong>
+                                    </div>
+                                    {duplicateInfo.timestamp && (
+                                      <div>
+                                        <span className="text-rose-600 font-semibold">Time:</span>{' '}
+                                        <strong className="text-slate-900 font-mono text-[10px]">{duplicateInfo.timestamp}</strong>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : hasError ? (
                                 <p className="text-[11px] text-red-600 font-medium mt-1">
                                   {hasError}
                                 </p>
-                              )}
+                              ) : null}
                             </div>
                           );
                         })}

@@ -191,18 +191,22 @@ export const checkSerialDuplicate = async (serialNumber, currentUdise) => {
   );
 
   if (localMatch) {
+    const matchedUdise = String(localMatch.UDISE_Code || '');
+    const matchedSchool = defaultSchools.find(s => String(s.udise) === matchedUdise);
+
     return {
       exists: true,
       match: {
         serialNumber: localMatch.Serial_Number,
-        udise: localMatch.UDISE_Code,
-        schoolName: localMatch.School_Name,
-        district: localMatch.District,
+        udise: matchedUdise || localMatch.UDISE_Code,
+        schoolName: localMatch.School_Name || matchedSchool?.school_name || 'School',
+        district: localMatch.District || matchedSchool?.district || '-',
+        block: localMatch.Block_Name || matchedSchool?.block || '-',
         itemName: localMatch.Item_Name,
-        installedBy: localMatch.Installed_By || localMatch.Updated_By_Name,
-        mobile: localMatch.Updated_By_Mobile,
+        installedBy: localMatch.Installed_By || localMatch.Updated_By_Name || '-',
+        mobile: localMatch.Updated_By_Mobile || '-',
         date: formatDateDDMMMYYYY(localMatch.Installation_Date),
-        timestamp: localMatch.Submission_Timestamp
+        timestamp: localMatch.Submission_Timestamp || ''
       }
     };
   }
@@ -214,12 +218,23 @@ export const checkSerialDuplicate = async (serialNumber, currentUdise) => {
       const res = await fetch(`${url}?action=checkSerial&serial=${encodeURIComponent(cleanSerial)}`);
       const json = await res.json();
       if (json.success && json.exists && json.match) {
+        const m = json.match;
+        const matchedUdise = String(m.udise || m.UDISE_Code || '');
+        const matchedSchool = defaultSchools.find(s => String(s.udise) === matchedUdise);
+
         return {
           exists: true,
           match: {
-            ...json.match,
-            installedBy: json.match.installedBy || json.match.updatedBy,
-            date: formatDateDDMMMYYYY(json.match.installDate || json.match.date)
+            serialNumber: cleanSerial,
+            udise: matchedUdise || m.udise,
+            schoolName: m.schoolName || m.school_name || m.School_Name || matchedSchool?.school_name || 'School',
+            district: m.district || m.District || matchedSchool?.district || '-',
+            block: m.block || m.Block || matchedSchool?.block || '-',
+            itemName: m.itemName || m.item_name || m.Item_Name || 'Hardware Asset',
+            installedBy: m.installedBy || m.updatedBy || m.Installed_By || m.Updated_By_Name || '-',
+            mobile: m.mobile || m.Updated_By_Mobile || '-',
+            date: formatDateDDMMMYYYY(m.installDate || m.date || m.Installation_Date),
+            timestamp: m.timestamp || m.Submission_Timestamp || ''
           }
         };
       }
