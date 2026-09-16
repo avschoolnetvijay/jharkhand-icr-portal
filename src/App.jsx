@@ -8,7 +8,7 @@ import AdminDashboard from './components/AdminDashboard';
 import SettingsModal from './components/SettingsModal';
 import defaultSchools from './data/schools_master.json';
 import { fetchSchoolStatusMap, fetchMasterSchools, getApiUrl, getCachedStatusMap, getCachedMasterSchools } from './services/api';
-import { Search, ShieldCheck, Database, RefreshCw, AlertTriangle, Cloud } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Cloud } from 'lucide-react';
 
 export default function App() {
   const [schools, setSchools] = useState(() => getCachedMasterSchools());
@@ -189,46 +189,7 @@ export default function App() {
                   />
                 )}
               </div>
-            ) : (
-              /* Informational Placeholder Cards */
-              <div className="max-w-4xl mx-auto grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5 pt-4">
-                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs hover:border-slate-300 transition-colors">
-                  <div className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700 mb-3">
-                    <Search className="h-5 w-5" />
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-900 mb-1">
-                    1. Search School
-                  </h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Type UDISE code, SNIL code, or school name to instantly check if the school is pending or already digitized.
-                  </p>
-                </div>
-
-                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs hover:border-slate-300 transition-colors">
-                  <div className="h-10 w-10 rounded-xl bg-emerald-50 flex items-center justify-center text-emerald-700 mb-3">
-                    <ShieldCheck className="h-5 w-5" />
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-900 mb-1">
-                    2. Zero Duplicates
-                  </h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Real-time duplicate detection alerts field technicians if a serial number is already registered in any school.
-                  </p>
-                </div>
-
-                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs hover:border-slate-300 transition-colors">
-                  <div className="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700 mb-3">
-                    <Database className="h-5 w-5" />
-                  </div>
-                  <h3 className="text-sm font-bold text-slate-900 mb-1">
-                    3. Live Google Sheet Sync
-                  </h3>
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    Master schools and device rows are synced directly with your Google Sheet in real-time.
-                  </p>
-                </div>
-              </div>
-            )}
+            ) : null}
           </div>
         ) : (
           /* Admin Dashboard View */
