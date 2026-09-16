@@ -7,8 +7,10 @@ const STORAGE_INVENTORY = 'icr_local_inventory';
 const STORAGE_STATUS = 'icr_local_status';
 const STORAGE_MASTER_SCHOOLS = 'icr_cached_master_schools';
 
-// Default / fallback API URL (can be customized via UI or .env)
-const DEFAULT_API_URL = import.meta.env?.VITE_GOOGLE_SCRIPT_URL || '';
+// Permanent default Google Apps Script Web App URL for Jharkhand ICT & Smart Class Project
+const PERMANENT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxsfUCtKWIanqeBdfdcQpkGAxo03F6KjoNp_eDfmWld1UgxjpDqUdd1mxLv9afIu9VP/exec';
+
+const DEFAULT_API_URL = import.meta.env?.VITE_GOOGLE_SCRIPT_URL || PERMANENT_SCRIPT_URL;
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -204,7 +206,7 @@ export const submitICR = async (submissionPayload) => {
   
   if (!url) {
     throw new Error(
-      'Google Sheets is NOT connected on this site! Please click the Cloud/Settings icon at the top right and enter your Google Apps Script Web App URL first.'
+      'Google Sheets is NOT connected! Please enter your Google Apps Script Web App URL first.'
     );
   }
 
