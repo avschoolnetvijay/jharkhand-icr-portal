@@ -664,6 +664,10 @@ export default function NewDataCollectionView({
                                       <strong className="text-slate-900">{duplicateInfo.installedBy || '-'}</strong>
                                     </div>
                                     <div>
+                                      <span className="text-rose-600 font-semibold">Mobile No.:</span>{' '}
+                                      <strong className="text-slate-900 font-mono">{duplicateInfo.mobile || '-'}</strong>
+                                    </div>
+                                    <div>
                                       <span className="text-rose-600 font-semibold">Date:</span>{' '}
                                       <strong className="text-slate-900">{duplicateInfo.date || '-'}</strong>
                                     </div>

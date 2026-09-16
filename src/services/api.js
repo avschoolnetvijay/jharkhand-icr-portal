@@ -193,6 +193,8 @@ export const checkSerialDuplicate = async (serialNumber, currentUdise) => {
   if (localMatch) {
     const matchedUdise = String(localMatch.UDISE_Code || '');
     const matchedSchool = defaultSchools.find(s => String(s.udise) === matchedUdise);
+    const statusCache = getCachedStatusMap();
+    const statusInfo = statusCache[matchedUdise] || {};
 
     return {
       exists: true,
@@ -203,10 +205,10 @@ export const checkSerialDuplicate = async (serialNumber, currentUdise) => {
         district: localMatch.District || matchedSchool?.district || '-',
         block: localMatch.Block_Name || matchedSchool?.block || '-',
         itemName: localMatch.Item_Name,
-        installedBy: localMatch.Installed_By || localMatch.Updated_By_Name || '-',
-        mobile: localMatch.Updated_By_Mobile || '-',
-        date: formatDateDDMMMYYYY(localMatch.Installation_Date),
-        timestamp: localMatch.Submission_Timestamp || ''
+        installedBy: localMatch.Installed_By || localMatch.Updated_By_Name || statusInfo.installedBy || '-',
+        mobile: localMatch.Updated_By_Mobile || statusInfo.mobile || '-',
+        date: formatDateDDMMMYYYY(localMatch.Installation_Date || statusInfo.date),
+        timestamp: localMatch.Submission_Timestamp || statusInfo.timestamp || ''
       }
     };
   }
@@ -221,6 +223,8 @@ export const checkSerialDuplicate = async (serialNumber, currentUdise) => {
         const m = json.match;
         const matchedUdise = String(m.udise || m.UDISE_Code || '');
         const matchedSchool = defaultSchools.find(s => String(s.udise) === matchedUdise);
+        const statusCache = getCachedStatusMap();
+        const statusInfo = statusCache[matchedUdise] || {};
 
         return {
           exists: true,
@@ -231,10 +235,10 @@ export const checkSerialDuplicate = async (serialNumber, currentUdise) => {
             district: m.district || m.District || matchedSchool?.district || '-',
             block: m.block || m.Block || matchedSchool?.block || '-',
             itemName: m.itemName || m.item_name || m.Item_Name || 'Hardware Asset',
-            installedBy: m.installedBy || m.updatedBy || m.Installed_By || m.Updated_By_Name || '-',
-            mobile: m.mobile || m.Updated_By_Mobile || '-',
-            date: formatDateDDMMMYYYY(m.installDate || m.date || m.Installation_Date),
-            timestamp: m.timestamp || m.Submission_Timestamp || ''
+            installedBy: m.installedBy || m.updatedBy || m.Installed_By || m.Updated_By_Name || statusInfo.installedBy || '-',
+            mobile: m.mobile || m.Updated_By_Mobile || m.technician_mobile || statusInfo.mobile || '-',
+            date: formatDateDDMMMYYYY(m.installDate || m.date || m.Installation_Date || statusInfo.date),
+            timestamp: m.timestamp || m.Submission_Timestamp || statusInfo.timestamp || ''
           }
         };
       }
