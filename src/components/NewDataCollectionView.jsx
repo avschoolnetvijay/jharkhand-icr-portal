@@ -262,10 +262,19 @@ export default function NewDataCollectionView({
       return;
     }
 
-    // 1. Mandatory Field Validations
+    // 1. Mandatory Field Validations with 10-Digit Mobile Check
+    const cleanMobile = techMobile.trim().replace(/\D/g, '');
     const errors = {};
     if (!installedBy.trim()) errors['installedBy'] = 'Installation team name is required.';
-    if (!techMobile.trim()) errors['techMobile'] = 'Mobile number is required.';
+    
+    if (!cleanMobile) {
+      errors['techMobile'] = 'Mobile number is required.';
+    } else if (cleanMobile.length !== 10) {
+      errors['techMobile'] = `Mobile number must be exactly 10 digits (currently ${cleanMobile.length}).`;
+    } else if (!/^[6-9]\d{9}$/.test(cleanMobile)) {
+      errors['techMobile'] = 'Please enter a valid 10-digit Indian mobile number (starts with 6, 7, 8, or 9).';
+    }
+
     if (!installDate) errors['installDate'] = 'Installation date is required.';
 
     deviceList.forEach((d) => {
@@ -278,7 +287,7 @@ export default function NewDataCollectionView({
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       const firstError = Object.values(errors)[0];
-      alert(`Please fill all required fields: ${firstError}`);
+      alert(`Please fill all required fields correctly:\n• ${firstError}`);
       return;
     }
 
@@ -295,55 +304,51 @@ export default function NewDataCollectionView({
       return;
     }
 
-    setIsSubmitting(true);
-    setSubmissionStatusText('Verifying all serial numbers against database (Zero Duplicate Check)...');
-
-    try {
-      // 3. Pre-Submission Rigorous Verification (Fresh Google Sheets & Database Check)
-      const verification = await verifyAllSerialsBeforeSubmit(deviceList, serialValues, selectedSchool);
-      if (!verification.valid) {
-        setIsSubmitting(false);
-        setSubmissionStatusText('');
-
-        if (verification.type === 'intra_form') {
-          alert(`CANNOT SUBMIT: ${verification.message}`);
-          return;
-        }
-
-        if (verification.type === 'already_registered' && verification.duplicates) {
-          const newErrors = { ...fieldErrors };
-          const newDuplicates = { ...duplicateDetails };
-
-          verification.duplicates.forEach((dup) => {
-            newDuplicates[dup.id] = dup.match;
-            newErrors[dup.id] = `Duplicate! Serial already registered in ${dup.match.schoolName}`;
-          });
-
-          setDuplicateDetails(newDuplicates);
-          setFieldErrors(newErrors);
-
-          const firstDup = verification.duplicates[0];
-          alert(
-            `SUBMISSION BLOCKED: DUPLICATE SERIAL DETECTED!\n\n` +
-            `Serial Number: ${firstDup.serialNumber}\n` +
-            `Device: ${firstDup.deviceName}\n` +
-            `Already Registered in: ${firstDup.match.schoolName} (UDISE: ${firstDup.match.udise})\n` +
-            `Installed By: ${firstDup.match.installedBy} (Mobile: ${firstDup.match.mobile})\n` +
-            `Installation Date: ${firstDup.match.date}\n\n` +
-            `To guarantee zero duplicates, this school cannot be submitted until all serials are unique.`
-          );
-
-          // Smooth scroll to the conflicting device card
-          const targetEl = document.getElementById(`device-card-${firstDup.id}`);
-          if (targetEl) {
-            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          }
-          return;
-        }
+    // 3. Pre-Submission Instant Verification (0ms local registry check)
+    const verification = verifyAllSerialsBeforeSubmit(deviceList, serialValues, selectedSchool);
+    if (!verification.valid) {
+      if (verification.type === 'intra_form') {
+        alert(`CANNOT SUBMIT: ${verification.message}`);
+        return;
       }
 
-      setSubmissionStatusText('Submitting & Digitizing ICR to Google Sheets...');
+      if (verification.type === 'already_registered' && verification.duplicates) {
+        const newErrors = { ...fieldErrors };
+        const newDuplicates = { ...duplicateDetails };
 
+        verification.duplicates.forEach((dup) => {
+          newDuplicates[dup.id] = dup.match;
+          newErrors[dup.id] = `Duplicate! Serial already registered in ${dup.match.schoolName}`;
+        });
+
+        setDuplicateDetails(newDuplicates);
+        setFieldErrors(newErrors);
+
+        const firstDup = verification.duplicates[0];
+        alert(
+          `SUBMISSION BLOCKED: DUPLICATE SERIAL DETECTED!\n\n` +
+          `Serial Number: ${firstDup.serialNumber}\n` +
+          `Device: ${firstDup.deviceName}\n` +
+          `Already Registered in: ${firstDup.match.schoolName} (UDISE: ${firstDup.match.udise})\n` +
+          `Installed By: ${firstDup.match.installedBy} (Mobile: ${firstDup.match.mobile})\n` +
+          `Installation Date: ${firstDup.match.date}\n\n` +
+          `To guarantee zero duplicates, this school cannot be submitted until all serials are unique.`
+        );
+
+        // Smooth scroll to the conflicting device card
+        const targetEl = document.getElementById(`device-card-${firstDup.id}`);
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return;
+      }
+    }
+
+    // 4. Fast Direct Submission to Google Sheets
+    setIsSubmitting(true);
+    setSubmissionStatusText('Submitting & Digitizing ICR to Google Sheets...');
+
+    try {
       const submissionPayload = {
         udise: selectedSchool.udise,
         snil: selectedSchool.snil,
@@ -352,7 +357,7 @@ export default function NewDataCollectionView({
         block: selectedSchool.block,
         category: selectedSchool.category,
         installed_by: installedBy.trim(),
-        technician_mobile: techMobile.trim(),
+        technician_mobile: cleanMobile,
         installation_date: installDate,
         devices: deviceList.map((d) => ({
           id: d.id,
@@ -368,8 +373,8 @@ export default function NewDataCollectionView({
         school: selectedSchool,
         devices: deviceList,
         serialValues: { ...serialValues },
-        installedBy,
-        technicianMobile: techMobile,
+        installedBy: installedBy.trim(),
+        technicianMobile: cleanMobile,
         installDate
       });
 
@@ -377,6 +382,34 @@ export default function NewDataCollectionView({
         onSubmissionSuccess(selectedSchool.udise);
       }
     } catch (err) {
+      if (err.duplicateDetails) {
+        const d = err.duplicateDetails;
+        const matchingDev = deviceList.find(
+          item => (serialValues[item.id] || '').trim().toUpperCase() === String(d.serial).trim().toUpperCase()
+        );
+        if (matchingDev) {
+          setDuplicateDetails(prev => ({
+            ...prev,
+            [matchingDev.id]: {
+              serialNumber: d.serial,
+              schoolName: d.schoolName,
+              udise: d.udise,
+              itemName: d.itemName,
+              installedBy: d.installedBy,
+              mobile: d.mobile,
+              date: d.date
+            }
+          }));
+          setFieldErrors(prev => ({
+            ...prev,
+            [matchingDev.id]: `Duplicate! Serial already registered in ${d.schoolName}`
+          }));
+          const targetEl = document.getElementById(`device-card-${matchingDev.id}`);
+          if (targetEl) {
+            targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      }
       alert(`Submission Error: ${err.message}`);
     } finally {
       setIsSubmitting(false);
@@ -605,15 +638,33 @@ export default function NewDataCollectionView({
 
                     {/* Mobile No. */}
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
-                        Mobile No. *
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                          Mobile No. *
+                        </label>
+                        <span className={`text-[10px] font-mono ${techMobile.length === 10 ? 'text-emerald-600 font-bold' : 'text-slate-400'}`}>
+                          {techMobile.length}/10 digits
+                        </span>
+                      </div>
                       <input
                         type="tel"
+                        inputMode="numeric"
+                        maxLength={10}
+                        pattern="[0-9]*"
                         value={techMobile}
-                        onChange={(e) => setTechMobile(e.target.value)}
+                        onChange={(e) => {
+                          const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 10);
+                          setTechMobile(digitsOnly);
+                          if (fieldErrors['techMobile']) {
+                            setFieldErrors((prev) => {
+                              const next = { ...prev };
+                              delete next['techMobile'];
+                              return next;
+                            });
+                          }
+                        }}
                         placeholder="Enter 10-digit Mobile No."
-                        className={`w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:border-[#1d68e2] outline-hidden transition-all ${
+                        className={`w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl text-xs font-mono font-bold text-slate-900 focus:bg-white focus:border-[#1d68e2] outline-hidden transition-all ${
                           fieldErrors['techMobile'] ? 'border-red-400 bg-red-50/40' : 'border-slate-200'
                         }`}
                       />

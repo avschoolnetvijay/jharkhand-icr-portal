@@ -333,8 +333,9 @@ export const checkSerialDuplicate = (serialNumber, currentUdise) => {
 /**
  * Comprehensive Pre-Submission Verification
  * Ensures ZERO duplicate serial numbers can ever be submitted to Google Sheets.
+ * Runs instantly in 0ms using the pre-synced registry cache so submission is fast!
  */
-export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, selectedSchool) => {
+export const verifyAllSerialsBeforeSubmit = (deviceList, serialValues, selectedSchool) => {
   // 1. Intra-form duplicate check (mutually exclusive within current form)
   const seenInForm = new Map();
   for (const d of deviceList) {
@@ -353,14 +354,7 @@ export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, sel
     seenInForm.set(sn, { id: d.id, name: d.itemName || d.label });
   }
 
-  // 2. Fresh background sync with Google Sheets to get absolute latest inventory
-  try {
-    await syncRegisteredSerials(true);
-  } catch (err) {
-    console.warn('Pre-submit live inventory sync note:', err);
-  }
-
-  // 3. Database duplicate check against all registered serials
+  // 2. Database duplicate check against local registered serials cache (0ms instant)
   const registry = getRegisteredSerialsMap();
   const duplicates = [];
 
@@ -453,13 +447,18 @@ export const submitICR = async (submissionPayload) => {
     const json = await res.json();
     if (!json.success) {
       if (json.duplicate_detected && json.details) {
-        throw new Error(
+        const dupErr = new Error(
           `DUPLICATE ERROR: Serial number "${json.details.serial}" already registered in ${json.details.schoolName} (${json.details.udise}) by ${json.details.installedBy || json.details.updatedBy}!`
         );
+        dupErr.duplicateDetails = json.details;
+        throw dupErr;
       }
       throw new Error(json.error || 'Google Sheets rejected the submission.');
     }
   } catch (err) {
+    if (err.duplicateDetails) {
+      throw err;
+    }
     console.error('Google Sheet Sync Error:', err);
     throw new Error(`Google Sheet Sync Failed: ${err.message}. Please check if the Web App URL is active with "Anyone" access.`);
   }
