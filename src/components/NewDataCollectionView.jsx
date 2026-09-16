@@ -39,7 +39,7 @@ export default function NewDataCollectionView({
   onNavigate
 }) {
   // Form State
-  const [installedBy, setInstalledBy] = useState('Vijay Kumar Ray');
+  const [installedBy, setInstalledBy] = useState('');
   const [techMobile, setTechMobile] = useState('');
   const [installDate, setInstallDate] = useState(() => {
     return new Date().toISOString().split('T')[0];
@@ -144,13 +144,13 @@ export default function NewDataCollectionView({
     // Validation
     const errors = {};
     if (!installedBy.trim()) errors['installedBy'] = 'Technician name is required.';
-    if (!techMobile.trim()) errors['techMobile'] = 'Contact mobile number is required.';
+    if (!techMobile.trim()) errors['techMobile'] = 'Mobile number is required.';
     if (!installDate) errors['installDate'] = 'Installation date is required.';
 
     deviceList.forEach((d) => {
       const val = (serialValues[d.id] || '').trim();
       if (!val) {
-        errors[d.id] = `${d.label || d.item_name} serial is required.`;
+        errors[d.id] = `${d.itemName || d.item_name || d.label || 'Device'} serial is required.`;
       }
     });
 
@@ -176,8 +176,8 @@ export default function NewDataCollectionView({
         installation_date: installDate,
         devices: deviceList.map((d) => ({
           id: d.id,
-          name: d.item_name || d.label,
-          make: d.make || d.specs || 'Standard Spec',
+          name: d.itemName || d.item_name || d.label,
+          make: `${d.make || ''} ${d.model || d.specs || ''}`.trim() || 'Standard Spec',
           serial: serialValues[d.id].trim().toUpperCase()
         }))
       };
@@ -410,7 +410,7 @@ export default function NewDataCollectionView({
                         type="text"
                         value={installedBy}
                         onChange={(e) => setInstalledBy(e.target.value)}
-                        placeholder="Technician Full Name"
+                        placeholder="Enter Technician / Engineer Name"
                         className={`w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:border-[#1d68e2] outline-hidden transition-all ${
                           fieldErrors['installedBy'] ? 'border-red-400 bg-red-50/40' : 'border-slate-200'
                         }`}
@@ -422,16 +422,16 @@ export default function NewDataCollectionView({
                       )}
                     </div>
 
-                    {/* Technician Mobile */}
+                    {/* Mobile No. */}
                     <div>
                       <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
-                        Technician Mobile *
+                        Mobile No. *
                       </label>
                       <input
                         type="tel"
                         value={techMobile}
                         onChange={(e) => setTechMobile(e.target.value)}
-                        placeholder="10-digit Mobile Number"
+                        placeholder="Enter 10-digit Mobile No."
                         className={`w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:border-[#1d68e2] outline-hidden transition-all ${
                           fieldErrors['techMobile'] ? 'border-red-400 bg-red-50/40' : 'border-slate-200'
                         }`}
@@ -496,12 +496,12 @@ export default function NewDataCollectionView({
                               : 'border-slate-200 bg-slate-50/40'
                           }`}
                         >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="text-xs font-bold text-slate-900">
-                              {idx + 1}. {dev.label || dev.item_name}
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <span className="text-xs font-bold text-slate-900 leading-tight">
+                              {idx + 1}. {dev.itemName || dev.item_name || dev.label || 'Device'}
                             </span>
-                            <span className="text-[10px] font-semibold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
-                              {dev.specs || dev.make || 'Standard'}
+                            <span className="text-[10px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200 shrink-0">
+                              {dev.make} {dev.model ? `• ${dev.model}` : ''}
                             </span>
                           </div>
 
@@ -511,8 +511,8 @@ export default function NewDataCollectionView({
                               value={val}
                               onChange={(e) => handleSerialChange(dev.id, e.target.value)}
                               onBlur={(e) => handleSerialBlur(dev.id, e.target.value)}
-                              placeholder={`Enter ${dev.item_name || 'Device'} Serial Number`}
-                              className={`w-full px-3.5 py-2 bg-white border rounded-xl text-xs font-mono font-bold text-slate-900 uppercase focus:border-[#1d68e2] focus:ring-1 focus:ring-blue-500 outline-hidden transition-all ${
+                              placeholder={dev.placeholder || `Enter ${dev.itemName || 'Device'} Serial Number`}
+                              className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-xs font-mono font-bold text-slate-900 uppercase focus:border-[#1d68e2] focus:ring-1 focus:ring-blue-500 outline-hidden transition-all ${
                                 hasError ? 'border-red-400 bg-red-50/30' : 'border-slate-300'
                               }`}
                             />

@@ -306,8 +306,8 @@ export const exportSingleSchoolICRToExcel = ({
 
   const rows = devices.map((d, idx) => [
     idx + 1,
-    d.label || d.name,
-    d.specs || d.make || '-',
+    d.itemName || d.label || d.item_name || d.name || `Device ${idx + 1}`,
+    `${d.make || ''} ${d.model || d.specs || ''}`.trim() || '-',
     serialValues[d.id] || d.serial || '-',
     'Yes',
     'Yes',
