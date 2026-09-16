@@ -14,7 +14,8 @@ import {
   Download,
   ArrowLeft,
   FileSpreadsheet,
-  Check
+  Check,
+  Layers
 } from 'lucide-react';
 import { CATEGORY_LABELS, getCategoryDevices } from '../data/deviceSchemas';
 import {
@@ -78,6 +79,61 @@ export default function NewDataCollectionView({
   const filledCount = useMemo(() => {
     return Object.values(serialValues).filter((v) => (v || '').trim().length > 0).length;
   }, [serialValues]);
+
+  // Group devices into clear sub-sections with separation headers (e.g. ICT Lab vs Smart Class)
+  const deviceSections = useMemo(() => {
+    if (!selectedSchool || deviceList.length === 0) return [];
+
+    if (selectedSchool.category === 'ICT_05_INCS_WITH_SMART') {
+      const ictDevices = deviceList.filter((d) => (d.section || '').includes('ICT'));
+      const smartDevices = deviceList.filter((d) => (d.section || '').includes('Smart'));
+      return [
+        {
+          title: 'ICT Lab Section (8 Devices)',
+          subtitle: 'Chromebooks, INCS Hub, Multifunctional Printer & Dedicated UPS',
+          icon: 'ict',
+          devices: ictDevices
+        },
+        {
+          title: 'Smart Class Section (4 Devices)',
+          subtitle: 'Integrated Interactive Projector (KYAN Units) & Dedicated UPS',
+          icon: 'smart',
+          devices: smartDevices
+        }
+      ];
+    }
+
+    if (selectedSchool.category === 'SMART_ONLY') {
+      return [
+        {
+          title: 'Smart Class Section (4 Devices)',
+          subtitle: 'Integrated Interactive Projector (KYAN Units) & Dedicated UPS',
+          icon: 'smart',
+          devices: deviceList
+        }
+      ];
+    }
+
+    if (selectedSchool.category === 'ICT_05_INCS_ONLY') {
+      return [
+        {
+          title: 'ICT Lab Section (8 Devices)',
+          subtitle: 'Chromebooks, INCS Hub, Multifunctional Printer & Dedicated UPS',
+          icon: 'ict',
+          devices: deviceList
+        }
+      ];
+    }
+
+    return [
+      {
+        title: `${CATEGORY_LABELS[selectedSchool.category] || 'ICT Lab Infrastructure'} (${deviceList.length} Devices)`,
+        subtitle: 'Hardware Devices, AV & Power Equipment',
+        icon: 'ict',
+        devices: deviceList
+      }
+    ];
+  }, [selectedSchool, deviceList]);
 
   // Serial Change handler (Force Uppercase)
   const handleSerialChange = (id, val) => {
@@ -410,7 +466,7 @@ export default function NewDataCollectionView({
                         type="text"
                         value={installedBy}
                         onChange={(e) => setInstalledBy(e.target.value)}
-                        placeholder="Enter Technician / Engineer Name"
+                        placeholder="Enter the Installation Team Name"
                         className={`w-full px-3.5 py-2.5 bg-slate-50 border rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:border-[#1d68e2] outline-hidden transition-all ${
                           fieldErrors['installedBy'] ? 'border-red-400 bg-red-50/40' : 'border-slate-200'
                         }`}
@@ -465,8 +521,8 @@ export default function NewDataCollectionView({
                   </div>
                 </div>
 
-                {/* 2. Hardware Devices & Serial Numbers Section */}
-                <div className="space-y-3 pt-3 border-t border-slate-100">
+                {/* 2. Hardware Devices & Serial Numbers Section (with ICT and Smart Class separation) */}
+                <div className="space-y-5 pt-3 border-t border-slate-100">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-1.5">
                       <Cpu className="h-3.5 w-3.5 text-[#1d68e2]" />
@@ -474,69 +530,99 @@ export default function NewDataCollectionView({
                         Hardware Serial Numbers ({deviceList.length} Devices Required)
                       </span>
                     </h4>
-                    <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                    <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700">
                       {filledCount} / {deviceList.length} Serials Entered
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    {deviceList.map((dev, idx) => {
-                      const isChecking = checkingSerialId === dev.id;
-                      const hasError = fieldErrors[dev.id];
-                      const val = serialValues[dev.id] || '';
-
-                      return (
-                        <div
-                          key={dev.id}
-                          className={`p-3.5 rounded-2xl border transition-all ${
-                            hasError
-                              ? 'border-red-300 bg-red-50/20'
-                              : val
-                              ? 'border-emerald-200 bg-emerald-50/10'
-                              : 'border-slate-200 bg-slate-50/40'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <span className="text-xs font-bold text-slate-900 leading-tight">
-                              {idx + 1}. {dev.itemName || dev.item_name || dev.label || 'Device'}
-                            </span>
-                            <span className="text-[10px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200 shrink-0">
-                              {dev.make} {dev.model ? `• ${dev.model}` : ''}
-                            </span>
-                          </div>
-
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={val}
-                              onChange={(e) => handleSerialChange(dev.id, e.target.value)}
-                              onBlur={(e) => handleSerialBlur(dev.id, e.target.value)}
-                              placeholder={dev.placeholder || `Enter ${dev.itemName || 'Device'} Serial Number`}
-                              className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-xs font-mono font-bold text-slate-900 uppercase focus:border-[#1d68e2] focus:ring-1 focus:ring-blue-500 outline-hidden transition-all ${
-                                hasError ? 'border-red-400 bg-red-50/30' : 'border-slate-300'
-                              }`}
-                            />
-                            {isChecking && (
-                              <div className="absolute right-2.5 top-2.5">
-                                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
-                              </div>
-                            )}
-                            {val && !hasError && !isChecking && (
-                              <div className="absolute right-2.5 top-2.5 text-emerald-600">
-                                <Check className="h-4 w-4" />
-                              </div>
+                  {deviceSections.map((sec) => (
+                    <div key={sec.title} className="space-y-3 pt-2">
+                      {/* Section Separation Header (ICT Lab vs Smart Class) */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 p-3 rounded-xl bg-slate-100/90 border border-slate-200/90">
+                        <div className="flex items-center space-x-2.5">
+                          <div className="h-7 w-7 rounded-lg bg-white shadow-2xs flex items-center justify-center text-[#1d68e2] shrink-0">
+                            {sec.icon === 'smart' ? (
+                              <Layers className="h-4 w-4 text-teal-600" />
+                            ) : (
+                              <Cpu className="h-4 w-4 text-blue-600" />
                             )}
                           </div>
-
-                          {hasError && (
-                            <p className="text-[11px] text-red-600 font-medium mt-1">
-                              {hasError}
+                          <div>
+                            <h5 className="text-xs sm:text-sm font-bold text-slate-900">
+                              {sec.title}
+                            </h5>
+                            <p className="text-[10px] text-slate-500">
+                              {sec.subtitle}
                             </p>
-                          )}
+                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <span className="text-[10px] sm:text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-white text-slate-700 border border-slate-200 self-start sm:self-auto">
+                          {sec.devices.filter((d) => (serialValues[d.id] || '').trim().length > 0).length} / {sec.devices.length} Entered
+                        </span>
+                      </div>
+
+                      {/* Device Input Cards for this Section */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {sec.devices.map((dev) => {
+                          const isChecking = checkingSerialId === dev.id;
+                          const hasError = fieldErrors[dev.id];
+                          const val = serialValues[dev.id] || '';
+                          const globalIdx = deviceList.findIndex((d) => d.id === dev.id);
+
+                          return (
+                            <div
+                              key={dev.id}
+                              className={`p-3.5 rounded-2xl border transition-all ${
+                                hasError
+                                  ? 'border-red-300 bg-red-50/20'
+                                  : val
+                                  ? 'border-emerald-200 bg-emerald-50/10'
+                                  : 'border-slate-200 bg-slate-50/40'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2 mb-1.5">
+                                <span className="text-xs font-bold text-slate-900 leading-tight">
+                                  {globalIdx + 1}. {dev.itemName || dev.item_name || dev.label || 'Device'}
+                                </span>
+                                <span className="text-[10px] font-semibold text-slate-600 bg-white px-2 py-0.5 rounded-md border border-slate-200 shrink-0">
+                                  {dev.make} {dev.model ? `• ${dev.model}` : ''}
+                                </span>
+                              </div>
+
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  value={val}
+                                  onChange={(e) => handleSerialChange(dev.id, e.target.value)}
+                                  onBlur={(e) => handleSerialBlur(dev.id, e.target.value)}
+                                  placeholder={dev.placeholder || `Enter ${dev.itemName || 'Device'} Serial Number`}
+                                  className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-xs font-mono font-bold text-slate-900 uppercase focus:border-[#1d68e2] focus:ring-1 focus:ring-blue-500 outline-hidden transition-all ${
+                                    hasError ? 'border-red-400 bg-red-50/30' : 'border-slate-300'
+                                  }`}
+                                />
+                                {isChecking && (
+                                  <div className="absolute right-2.5 top-2.5">
+                                    <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                                  </div>
+                                )}
+                                {val && !hasError && !isChecking && (
+                                  <div className="absolute right-2.5 top-2.5 text-emerald-600">
+                                    <Check className="h-4 w-4" />
+                                  </div>
+                                )}
+                              </div>
+
+                              {hasError && (
+                                <p className="text-[11px] text-red-600 font-medium mt-1">
+                                  {hasError}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 {/* 3. Submit Action Bar */}
