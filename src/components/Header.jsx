@@ -35,16 +35,15 @@ export default function Header({
           {/* Right: Sync Status */}
           <div className="flex items-center space-x-2 sm:space-x-3">
             {/* Live Sheets Status Pill */}
-            <button
-              onClick={onOpenSettings}
-              className={`flex items-center space-x-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+            <div
+              className={`flex items-center space-x-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                 !isApiConnected
-                  ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                  ? 'bg-amber-50 text-amber-800 border-amber-200'
                   : isSyncing
                   ? 'bg-slate-100 text-slate-800 border-slate-300'
-                  : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
               }`}
-              title={isApiConnected ? (isSyncing ? 'Synchronizing with Google Sheets...' : 'Connected to Google Sheets') : 'Click to configure Google Sheets'}
+              title={isApiConnected ? (isSyncing ? 'Synchronizing with Google Sheets...' : 'Connected to Google Sheets') : 'Offline'}
             >
               <span className={`h-2 w-2 rounded-full shrink-0 ${
                 !isApiConnected
@@ -56,7 +55,7 @@ export default function Header({
               <span className="text-[11px] sm:text-xs font-semibold">
                 {!isApiConnected ? 'Offline' : isSyncing ? 'Syncing...' : 'Live Sync'}
               </span>
-            </button>
+            </div>
           </div>
         </div>
       </div>

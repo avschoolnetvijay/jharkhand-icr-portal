@@ -121,27 +121,6 @@ export default function App() {
           isSyncing={loading}
         />
 
-        {/* Prominent Warning Banner if Google Sheet is NOT connected */}
-        {!isApiConnected && (
-          <div className="bg-amber-700 text-white px-4 py-2.5 shadow-xs border-b border-amber-800">
-            <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs font-semibold">
-              <div className="flex items-center space-x-2">
-                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-200" />
-                <span>
-                  <strong>Google Sheet Not Connected!</strong> Connect your Google Apps Script URL to enable live cloud sync.
-                </span>
-              </div>
-              <button
-                onClick={() => setIsSettingsOpen(true)}
-                className="inline-flex items-center space-x-1.5 px-3 py-1 bg-white text-amber-900 font-bold rounded-lg hover:bg-amber-50 shadow-xs cursor-pointer transition-all"
-              >
-                <Cloud className="h-3.5 w-3.5 text-amber-700" />
-                <span>Connect Google Sheet</span>
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Body Content Area */}
         <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
           {isInitialSyncing ? (

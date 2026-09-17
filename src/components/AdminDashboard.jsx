@@ -47,7 +47,8 @@ export default function AdminDashboard({
   // Handle Login
   const handleLogin = (e) => {
     e.preventDefault();
-    if (passwordInput === 'Admin@2026') {
+    const cleanInput = (passwordInput || '').trim();
+    if (cleanInput === 'Snetadmin@2026') {
       setIsAuthenticated(true);
       sessionStorage.setItem('admin_authenticated', 'true');
       setAuthError('');
@@ -203,7 +204,7 @@ export default function AdminDashboard({
               type="password"
               value={passwordInput}
               onChange={(e) => setPasswordInput(e.target.value)}
-              placeholder="Enter Admin Password (e.g. Admin@2026)"
+              placeholder="Enter Admin Password"
               className="w-full px-4 py-3 text-center bg-slate-50 border border-slate-300 rounded-xl text-base sm:text-sm font-semibold focus:border-slate-600 focus:bg-white outline-hidden transition-all"
             />
             {authError && (
@@ -214,7 +215,7 @@ export default function AdminDashboard({
             type="submit"
             className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl shadow-xs transition-colors cursor-pointer"
           >
-            Unlock Dashboard
+            Unlock Reports
           </button>
         </form>
       </div>
@@ -244,14 +245,6 @@ export default function AdminDashboard({
             className="p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors cursor-pointer"
           >
             <RefreshCw className="h-4 w-4" />
-          </button>
-
-          <button
-            onClick={onOpenSettings}
-            className="inline-flex items-center space-x-1.5 px-3 sm:px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 shadow-2xs cursor-pointer transition-colors"
-          >
-            <Settings className="h-4 w-4 text-slate-500" />
-            <span>Database Config</span>
           </button>
 
           {/* EXCEL EXPORT BUTTON (ROW-WISE ASSET REGISTER) */}

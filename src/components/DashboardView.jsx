@@ -10,9 +10,10 @@ import {
   FileEdit,
   Eye,
   ArrowRight,
-  Download
+  BarChart3
 } from 'lucide-react';
-import { formatDateDDMMMYYYY, getAllInventoryRows, exportInventoryToExcel } from '../services/api';
+import { formatDateDDMMMYYYY } from '../services/api';
+import { CATEGORY_LABELS } from '../data/deviceSchemas';
 
 export default function DashboardView({
   schools,
@@ -44,6 +45,57 @@ export default function DashboardView({
     };
   }, [schools, statusMap]);
 
+  // District-wise Analytics
+  const districtAnalytics = useMemo(() => {
+    const dMap = {};
+    schools.forEach((s) => {
+      if (!dMap[s.district]) {
+        dMap[s.district] = { total: 0, completed: 0, pending: 0 };
+      }
+      dMap[s.district].total++;
+      if (statusMap[s.udise]?.status === 'Completed') {
+        dMap[s.district].completed++;
+      } else {
+        dMap[s.district].pending++;
+      }
+    });
+
+    return Object.entries(dMap)
+      .map(([district, data]) => ({
+        district,
+        total: data.total,
+        completed: data.completed,
+        pending: data.pending,
+        percent: Math.round((data.completed / data.total) * 100) || 0
+      }))
+      .sort((a, b) => b.completed - a.completed || a.district.localeCompare(b.district));
+  }, [schools, statusMap]);
+
+  // Category-wise Analytics
+  const categoryAnalytics = useMemo(() => {
+    const cMap = {};
+    schools.forEach((s) => {
+      if (!cMap[s.category]) {
+        cMap[s.category] = { total: 0, completed: 0, pending: 0 };
+      }
+      cMap[s.category].total++;
+      if (statusMap[s.udise]?.status === 'Completed') {
+        cMap[s.category].completed++;
+      } else {
+        cMap[s.category].pending++;
+      }
+    });
+
+    return Object.entries(cMap).map(([cat, data]) => ({
+      category: cat,
+      label: CATEGORY_LABELS[cat] || cat,
+      total: data.total,
+      completed: data.completed,
+      pending: data.pending,
+      percent: Math.round((data.completed / data.total) * 100) || 0
+    }));
+  }, [schools, statusMap]);
+
   // Recent Submissions (ONLY actually submitted completed schools from Google Sheets)
   const recentSubmissions = useMemo(() => {
     return schools
@@ -59,20 +111,6 @@ export default function DashboardView({
         };
       });
   }, [schools, statusMap]);
-
-  // Excel Export
-  const [isExporting, setIsExporting] = React.useState(false);
-  const handleExport = async () => {
-    setIsExporting(true);
-    try {
-      const inventory = await getAllInventoryRows();
-      exportInventoryToExcel(inventory, schools, statusMap);
-    } catch (err) {
-      alert(`Export error: ${err.message}`);
-    } finally {
-      setIsExporting(false);
-    }
-  };
 
   // SVG Circular Donut Chart calculations
   const radius = 48;
@@ -142,6 +180,96 @@ export default function DashboardView({
             <div className="text-[11px] text-rose-600/80 font-semibold mt-0.5">
               Zero Duplicates
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. District & Category Breakdown Analytics (Dashboard View - Strictly View Only, No Export) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* District-wise Progress */}
+        <div className="bg-white p-5 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs">
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                District-Wise Status ({districtAnalytics.length} Districts)
+              </h3>
+              <span className="text-xs text-slate-400 font-medium">Sorted by Done</span>
+            </div>
+          </div>
+
+          <div className="overflow-y-auto max-h-80 border border-slate-200 rounded-xl">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50 sticky top-0 font-bold text-slate-600 border-b border-slate-200">
+                <tr>
+                  <th className="py-2.5 px-3">District</th>
+                  <th className="py-2.5 px-3 text-center">Total</th>
+                  <th className="py-2.5 px-3 text-center text-emerald-700">Done</th>
+                  <th className="py-2.5 px-3 text-center text-amber-700">Pending</th>
+                  <th className="py-2.5 px-3 text-right">Progress</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {districtAnalytics.map((d) => (
+                  <tr key={d.district} className="hover:bg-slate-50/80">
+                    <td className="py-2.5 px-3 font-semibold text-slate-800">{d.district}</td>
+                    <td className="py-2.5 px-3 text-center font-mono text-slate-600">{d.total}</td>
+                    <td className="py-2.5 px-3 text-center font-mono font-bold text-emerald-700">
+                      {d.completed}
+                    </td>
+                    <td className="py-2.5 px-3 text-center font-mono text-amber-700">
+                      {d.pending}
+                    </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <div className="flex items-center justify-end space-x-2">
+                        <div className="w-14 sm:w-16 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="bg-emerald-600 h-1.5 rounded-full"
+                            style={{ width: `${d.percent}%` }}
+                          ></div>
+                        </div>
+                        <span className="font-mono font-bold w-9 text-slate-700">{d.percent}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Category-wise Breakdown */}
+        <div className="bg-white p-5 sm:p-6 rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs">
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                Lab Allocation Category Breakdown
+              </h3>
+              <span className="text-xs text-slate-400 font-medium">5 Lab Formats</span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {categoryAnalytics.map((c) => (
+              <div key={c.category} className="p-3 sm:p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+                <div className="flex justify-between items-center text-xs mb-1.5">
+                  <span className="font-semibold text-slate-800">{c.label}</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {c.completed} / {c.total}{' '}
+                    <span className="text-emerald-700 font-semibold">({c.percent}%)</span>
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="bg-slate-800 h-2 rounded-full transition-all duration-500"
+                    style={{ width: `${c.percent}%` }}
+                  ></div>
+                </div>
+                <div className="flex justify-between items-center text-[11px] text-slate-500 mt-1">
+                  <span>Pending: {c.pending} schools</span>
+                  <span>Target: {c.total} labs</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -240,14 +368,13 @@ export default function DashboardView({
                 <span>Digitization Link</span>
               </button>
 
-              {/* Download Report */}
+              {/* View Reports */}
               <button
-                onClick={handleExport}
-                disabled={isExporting}
-                className="w-full py-2.5 px-4 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200 flex items-center justify-center space-x-2 transition-all cursor-pointer disabled:opacity-50"
+                onClick={() => onNavigate('reports')}
+                className="w-full py-2.5 px-4 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200 flex items-center justify-center space-x-2 transition-all cursor-pointer"
               >
-                <Download className="h-4 w-4 text-[#1d68e2]" />
-                <span>{isExporting ? 'Exporting Excel...' : 'Download Report (.xlsx)'}</span>
+                <FileSpreadsheet className="h-4 w-4 text-[#1d68e2]" />
+                <span>View Reports & Analytics</span>
               </button>
             </div>
           </div>

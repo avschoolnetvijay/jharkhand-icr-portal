@@ -90,19 +90,8 @@ export default function Sidebar({
           </button>
         </nav>
 
-        {/* Bottom Config Link */}
-        <div className="p-3 border-t border-[#1a2d42] space-y-2">
-          <button
-            onClick={() => {
-              if (onClose) onClose();
-              if (onOpenSettings) onOpenSettings();
-            }}
-            className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:bg-[#13253b] hover:text-white transition-all cursor-pointer"
-          >
-            <Settings className="h-4 w-4 shrink-0 text-slate-400" />
-            <span>Database Config</span>
-          </button>
-
+        {/* Bottom Project Branding */}
+        <div className="p-3 border-t border-[#1a2d42]">
           <div className="p-2.5 rounded-xl bg-[#13253b]/70 border border-[#1a2d42] text-[11px] text-slate-400">
             <div className="font-semibold text-slate-200">Jharkhand ICR Portal</div>
             <div className="text-[10px] text-slate-400 mt-0.5">ICT 108 & SC 664 Project</div>
