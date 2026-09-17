@@ -150,7 +150,7 @@ export default function NewDataCollectionView({
     const serialToIds = {};
     Object.entries(serialValues).forEach(([id, val]) => {
       const sn = (val || '').trim().toUpperCase();
-      if (sn && sn.length >= 3) {
+      if (sn) {
         if (!serialToIds[sn]) serialToIds[sn] = [];
         serialToIds[sn].push(id);
       }

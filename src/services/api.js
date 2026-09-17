@@ -450,7 +450,7 @@ export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, sel
 
   for (const d of deviceList) {
     const sn = String(serialValues[d.id] || '').trim().toUpperCase();
-    if (!sn || sn.length < 3) continue;
+    if (!sn) continue;
 
     if (serialToDevices.has(sn)) {
       const others = serialToDevices.get(sn);
@@ -608,6 +608,9 @@ export const submitICR = async (submissionPayload) => {
     }
   } catch (err) {
     if (err.duplicateDetails) {
+      throw err;
+    }
+    if (err.message && (err.message.includes('Duplicate') || err.message.includes('duplicate'))) {
       throw err;
     }
     console.error('Google Sheet Sync Error:', err);
