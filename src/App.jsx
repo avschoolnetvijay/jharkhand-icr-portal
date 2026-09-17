@@ -44,7 +44,7 @@ export default function App() {
     try {
       // 1. Fetch real-time status map FIRST with live cache-busting
       const map = await fetchSchoolStatusMap();
-      if (map && Object.keys(map).length > 0) {
+      if (map) {
         setStatusMap(map);
       }
 

@@ -196,14 +196,24 @@ export const fetchSchoolStatusMap = async () => {
           };
         }
       });
-      const merged = { ...cachedMap, ...remoteMap };
+
+      // Google Sheet is the single source of truth!
+      // If rows were deleted in Google Sheets (or sheet is cleared), update cache to exactly match remoteMap.
       try {
-        localStorage.setItem(STORAGE_STATUS_CACHE, JSON.stringify(merged));
+        localStorage.setItem(STORAGE_STATUS_CACHE, JSON.stringify(remoteMap));
+        if (Object.keys(remoteMap).length === 0) {
+          // If sheet has 0 entries, also clear local pending status & local inventory
+          localStorage.removeItem(STORAGE_STATUS);
+          localStorage.removeItem(STORAGE_INVENTORY);
+          localStorage.removeItem(STORAGE_SERIAL_REGISTRY);
+          inMemorySerialMap = {};
+        }
       } catch (e) {
-        console.warn('Could not cache status map:', e);
+        console.warn('Could not update status cache:', e);
       }
-      broadcastPortalSync('STATUS_MAP_UPDATED', { statusMap: merged });
-      return merged;
+
+      broadcastPortalSync('STATUS_MAP_UPDATED', { statusMap: remoteMap });
+      return remoteMap;
     }
   } catch (err) {
     console.warn('Could not connect to Google Apps Script. Falling back to cached status:', err);
@@ -720,31 +730,19 @@ export const getAllInventoryRows = async () => {
     const json = await res.json();
     if (json.success && Array.isArray(json.data)) {
       const remoteRows = json.data;
-      const seen = new Set();
-      const combined = [];
+      const formattedRemote = remoteRows.map(r => ({
+        ...r,
+        Installed_By: r.Installed_By || r.Updated_By_Name,
+        Installation_Date: formatDateDDMMMYYYY(r.Installation_Date)
+      }));
 
-      remoteRows.forEach(r => {
-        const key = `${r.UDISE_Code}_${r.Item_Name}_${r.Serial_Number}`;
-        seen.add(key);
-        combined.push({
-          ...r,
-          Installed_By: r.Installed_By || r.Updated_By_Name,
-          Installation_Date: formatDateDDMMMYYYY(r.Installation_Date)
-        });
-      });
+      // If Google Sheet is empty or remote inventory was fetched, sync localInventory
+      if (remoteRows.length === 0) {
+        localStorage.removeItem(STORAGE_INVENTORY);
+        return [];
+      }
 
-      localInventory.forEach(r => {
-        const key = `${r.UDISE_Code}_${r.Item_Name}_${r.Serial_Number}`;
-        if (!seen.has(key)) {
-          combined.push({
-            ...r,
-            Installed_By: r.Installed_By || r.Updated_By_Name,
-            Installation_Date: formatDateDDMMMYYYY(r.Installation_Date)
-          });
-        }
-      });
-
-      return combined;
+      return formattedRemote;
     }
   } catch (err) {
     console.warn('Error fetching remote inventory:', err);
