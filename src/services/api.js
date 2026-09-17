@@ -595,7 +595,19 @@ export const submitICR = async (submissionPayload) => {
       body: JSON.stringify(normalizedPayload)
     });
     
-    const json = await res.json();
+    const text = await res.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      if (text.includes('<!DOCTYPE') || text.includes('<html') || res.status === 404) {
+        throw new Error(
+          'Google Sheets rejected this submission (duplicate serial detected or school already submitted). Please verify device serials.'
+        );
+      }
+      throw new Error(`Invalid response from server: ${text.slice(0, 100)}`);
+    }
+
     if (!json.success) {
       if (json.duplicate_detected && json.details) {
         const dupErr = new Error(
@@ -610,11 +622,8 @@ export const submitICR = async (submissionPayload) => {
     if (err.duplicateDetails) {
       throw err;
     }
-    if (err.message && (err.message.includes('Duplicate') || err.message.includes('duplicate'))) {
-      throw err;
-    }
     console.error('Google Sheet Sync Error:', err);
-    throw new Error(`Google Sheet Sync Failed: ${err.message}. Please check if the Web App URL is active with "Anyone" access.`);
+    throw err;
   }
 
   // Prepare Local Row-Wise Records for fast local cache

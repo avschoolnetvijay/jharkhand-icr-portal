@@ -958,12 +958,21 @@ export default function NewDataCollectionView({
                   <button
                     type="submit"
                     disabled={isSubmitting}
-                    className="w-full sm:w-auto px-7 py-3 rounded-xl bg-[#1d68e2] hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-bold shadow-md shadow-blue-600/20 flex items-center justify-center space-x-2 transition-all cursor-pointer disabled:opacity-50"
+                    className={`w-full sm:w-auto px-7 py-3 rounded-xl text-xs sm:text-sm font-bold shadow-md flex items-center justify-center space-x-2 transition-all cursor-pointer disabled:opacity-50 ${
+                      Object.keys(intraFormConflicts).length > 0
+                        ? 'bg-red-600 hover:bg-red-700 text-white shadow-red-600/20'
+                        : 'bg-[#1d68e2] hover:bg-blue-700 active:bg-blue-800 text-white shadow-blue-600/20'
+                    }`}
                   >
                     {isSubmitting ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span>{submissionStatusText || 'Submitting to Google Sheets...'}</span>
+                      </>
+                    ) : Object.keys(intraFormConflicts).length > 0 ? (
+                      <>
+                        <AlertTriangle className="h-4 w-4" />
+                        <span>Duplicate Serials in Form ({Object.keys(intraFormConflicts).length}) — Fix to Submit</span>
                       </>
                     ) : (
                       <>
