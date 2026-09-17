@@ -432,7 +432,7 @@ export default function NewDataCollectionView({
 
     // 4. Fast Direct Submission to Google Sheets
     setIsSubmitting(true);
-    setSubmissionStatusText('Submitting & Digitizing ICR to Google Sheets...');
+    setSubmissionStatusText('Duplicate Checking & Verifying...');
 
     try {
       const submissionPayload = {
@@ -950,11 +950,7 @@ export default function NewDataCollectionView({
                 </div>
 
                 {/* 3. Submit Action Bar */}
-                <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-                  <div className="text-xs text-slate-500">
-                    All hardware serials will be stored row-wise into Google Sheets.
-                  </div>
-
+                <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-end gap-3">
                   <button
                     type="submit"
                     disabled={isSubmitting}
@@ -967,7 +963,7 @@ export default function NewDataCollectionView({
                     {isSubmitting ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>{submissionStatusText || 'Submitting to Google Sheets...'}</span>
+                        <span>{submissionStatusText || 'Duplicate Checking & Verifying...'}</span>
                       </>
                     ) : Object.keys(intraFormConflicts).length > 0 ? (
                       <>
