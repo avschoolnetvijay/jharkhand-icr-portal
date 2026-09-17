@@ -87,6 +87,19 @@ export const getCachedStatusMap = () => {
 };
 
 /**
+ * Broadcast synchronization event across tabs in real-time
+ */
+export const broadcastPortalSync = (type, data = {}) => {
+  if (typeof BroadcastChannel !== 'undefined') {
+    try {
+      const channel = new BroadcastChannel('icr_portal_sync');
+      channel.postMessage({ type, ...data, timestamp: Date.now() });
+      channel.close();
+    } catch (e) {}
+  }
+};
+
+/**
  * Fetch Master School List directly from Google Sheet (Master_Schools tab)
  */
 export const fetchMasterSchools = async () => {
@@ -98,11 +111,22 @@ export const fetchMasterSchools = async () => {
   }
 
   try {
-    const res = await fetch(`${url}?action=getMasterSchools`);
-    const json = await res.json();
+    const res = await fetch(`${url}?action=getMasterSchools&_t=${Date.now()}`);
+    const text = await res.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return cached;
+    }
+
     if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-      localStorage.setItem(STORAGE_MASTER_SCHOOLS, JSON.stringify(json.data));
-      return json.data;
+      const normalized = json.data.map(s => ({
+        ...s,
+        district: s.district === 'PAKAUR' ? 'PAKUR' : (s.district || '').trim().toUpperCase()
+      }));
+      localStorage.setItem(STORAGE_MASTER_SCHOOLS, JSON.stringify(normalized));
+      return normalized;
     }
   } catch (err) {
     console.warn('Could not fetch Master_Schools from Google Sheets. Using cached/local list:', err);
@@ -135,7 +159,7 @@ export const seedMasterSchoolsToGoogleSheet = async () => {
 };
 
 /**
- * Fetch all school completion statuses with instant cache persistence
+ * Fetch all school completion statuses with instant cache persistence and cross-tab sync
  */
 export const fetchSchoolStatusMap = async () => {
   const url = getApiUrl();
@@ -146,19 +170,28 @@ export const fetchSchoolStatusMap = async () => {
   }
 
   try {
-    const res = await fetch(`${url}?action=getAllStatus`);
-    const json = await res.json();
+    const res = await fetch(`${url}?action=getAllStatus&_t=${Date.now()}`);
+    const text = await res.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch (parseErr) {
+      console.warn('Google Apps Script returned non-JSON response:', text.slice(0, 200));
+      return cachedMap;
+    }
+
     if (json.success && Array.isArray(json.data)) {
       const remoteMap = {};
       json.data.forEach(item => {
-        if (item.UDISE_Code) {
-          remoteMap[String(item.UDISE_Code)] = {
+        const udise = String(item.UDISE_Code || item.UDISE_CODE || item.udise || '').trim();
+        if (udise) {
+          remoteMap[udise] = {
             status: item.Status || 'Completed',
             installedBy: item.Installed_By || item.Updated_By_Name || '',
-            mobile: item.Updated_By_Mobile || '',
+            mobile: String(item.Updated_By_Mobile || '').trim(),
             date: formatDateDDMMMYYYY(item.Installation_Date || ''),
             timestamp: item.Last_Updated_Timestamp || '',
-            totalDevices: item.Total_Devices || 0,
+            totalDevices: Number(item.Total_Devices) || 0,
             devicesJson: item.Device_Serials_JSON || '[]'
           };
         }
@@ -169,6 +202,7 @@ export const fetchSchoolStatusMap = async () => {
       } catch (e) {
         console.warn('Could not cache status map:', e);
       }
+      broadcastPortalSync('STATUS_MAP_UPDATED', { statusMap: merged });
       return merged;
     }
   } catch (err) {
@@ -506,6 +540,9 @@ export const submitICR = async (submissionPayload) => {
   try {
     localStorage.setItem(STORAGE_STATUS_CACHE, JSON.stringify(cachedStatus));
   } catch (e) {}
+
+  // Broadcast submission to all other open tabs in real-time
+  broadcastPortalSync('STATUS_MAP_UPDATED', { statusMap: cachedStatus, udise: String(udise) });
 
   // Update in-memory and persistent serial registry with newly submitted serials
   try {

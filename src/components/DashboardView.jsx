@@ -10,7 +10,8 @@ import {
   FileEdit,
   Eye,
   ArrowRight,
-  BarChart3
+  BarChart3,
+  RefreshCw
 } from 'lucide-react';
 import { formatDateDDMMMYYYY } from '../services/api';
 import { CATEGORY_LABELS } from '../data/deviceSchemas';
@@ -19,7 +20,9 @@ export default function DashboardView({
   schools,
   statusMap,
   onNavigate,
-  onViewSchool
+  onViewSchool,
+  onRefresh,
+  isSyncing = false
 }) {
   // Compute overall KPI Metrics
   const metrics = useMemo(() => {
@@ -119,6 +122,30 @@ export default function DashboardView({
 
   return (
     <div className="space-y-6 sm:space-y-7 animate-in fade-in duration-200">
+      {/* Dashboard Top Title Bar & Live Sync Status */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-1 border-b border-slate-200/60">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            Project Overview Dashboard
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Real-time ICR digitization status across {metrics.totalSchools} Jharkhand schools
+          </p>
+        </div>
+
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            disabled={isSyncing}
+            className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 shadow-2xs transition-all cursor-pointer disabled:opacity-50 self-start sm:self-auto"
+            title="Refresh real-time data from Google Sheets"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin text-[#1d68e2]' : 'text-slate-500'}`} />
+            <span>{isSyncing ? 'Syncing...' : 'Refresh Data'}</span>
+          </button>
+        )}
+      </div>
+
       {/* 1. Row of 4 Metric KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         {/* Total Schools */}

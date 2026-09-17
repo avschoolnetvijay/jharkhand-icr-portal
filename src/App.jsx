@@ -28,18 +28,21 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [isInitialSyncing, setIsInitialSyncing] = useState(true);
+
+  // If user already has cached data, don't block the screen with full-page spinner
+  const hasCachedData = Object.keys(statusMap).length > 0;
+  const [isInitialSyncing, setIsInitialSyncing] = useState(!hasCachedData);
 
   const isApiConnected = Boolean(getApiUrl());
 
   // Load real-time status first (fast), and update master schools in background
   const refreshAllData = useCallback(async (isInitial = false) => {
-    if (isInitial) {
+    if (isInitial && Object.keys(getCachedStatusMap()).length === 0) {
       setIsInitialSyncing(true);
     }
     setLoading(true);
     try {
-      // 1. Fetch real-time status map FIRST (takes ~2-3s instead of 25s, guarantees accurate search status)
+      // 1. Fetch real-time status map FIRST with live cache-busting
       const map = await fetchSchoolStatusMap();
       if (map && Object.keys(map).length > 0) {
         setStatusMap(map);
@@ -64,12 +67,62 @@ export default function App() {
   useEffect(() => {
     refreshAllData(true);
 
-    // Failsafe timer: If network takes > 7s (e.g. slow 2G), automatically unlock using cached data
+    // Failsafe timer (18 seconds for cold starts)
     const failsafeTimer = setTimeout(() => {
       setIsInitialSyncing(false);
-    }, 7000);
+    }, 18000);
 
-    return () => clearTimeout(failsafeTimer);
+    // 1. Listen for storage changes across tabs
+    const handleStorageChange = (e) => {
+      if (e.key === 'icr_local_status' || e.key === 'icr_cached_status_map') {
+        const fresh = getCachedStatusMap();
+        setStatusMap(fresh);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    // 2. BroadcastChannel for instant cross-tab sync in 0ms
+    let channel;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        channel = new BroadcastChannel('icr_portal_sync');
+        channel.onmessage = (event) => {
+          if (event.data?.type === 'STATUS_MAP_UPDATED' && event.data?.statusMap) {
+            setStatusMap(event.data.statusMap);
+          } else if (event.data?.type === 'FORCE_REFRESH') {
+            refreshAllData(false);
+          }
+        };
+      }
+    } catch (e) {}
+
+    // 3. Tab focus auto-sync: When switching to this tab in Chrome, pull fresh data
+    const handleFocus = () => {
+      refreshAllData(false);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    // 4. Tab visibility change: When tab becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshAllData(false);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // 5. Periodic background auto-refresh every 30 seconds
+    const interval = setInterval(() => {
+      refreshAllData(false);
+    }, 30000);
+
+    return () => {
+      clearTimeout(failsafeTimer);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearInterval(interval);
+      if (channel) channel.close();
+    };
   }, [refreshAllData]);
 
   // Handle successful digitization
@@ -116,6 +169,7 @@ export default function App() {
         <Header
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onRefresh={() => refreshAllData(false)}
           completedCount={completedCount}
           totalSchools={schools.length}
           isSyncing={loading}
@@ -153,6 +207,8 @@ export default function App() {
                   statusMap={statusMap}
                   onNavigate={setCurrentView}
                   onViewSchool={handleViewSchool}
+                  onRefresh={() => refreshAllData(false)}
+                  isSyncing={loading}
                 />
               )}
 
