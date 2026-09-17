@@ -25,12 +25,10 @@ import {
   verifyAllSerialsBeforeSubmit,
   syncRegisteredSerials,
   submitICR,
-  formatDateDDMMMYYYY,
-  getAllInventoryRows
+  formatDateDDMMMYYYY
 } from '../services/api';
 import {
-  exportSingleSchoolICRToExcel,
-  exportFullProjectToExcel
+  exportSingleSchoolICRToExcel
 } from '../services/excelStyles';
 import SchoolSearch from './SchoolSearch';
 import ReadOnlySubmissionView from './ReadOnlySubmissionView';
@@ -58,7 +56,6 @@ export default function NewDataCollectionView({
   const [submissionStatusText, setSubmissionStatusText] = useState('');
   const [checkingSerialId, setCheckingSerialId] = useState(null);
   const [submissionSuccessData, setSubmissionSuccessData] = useState(null);
-  const [isExportingMaster, setIsExportingMaster] = useState(false);
 
   // Background refresh of registered serials registry on mount
   useEffect(() => {
@@ -520,18 +517,6 @@ export default function NewDataCollectionView({
     });
   };
 
-  const handleExportMaster = async () => {
-    setIsExportingMaster(true);
-    try {
-      const inventory = await getAllInventoryRows();
-      exportFullProjectToExcel(inventory, schools, statusMap);
-    } catch (err) {
-      alert(`Export error: ${err.message}`);
-    } finally {
-      setIsExportingMaster(false);
-    }
-  };
-
   // -------------------------------------------------------------
   // SUCCESS SCREEN (Visible right after submission with Excel option)
   // -------------------------------------------------------------
@@ -569,11 +554,11 @@ export default function NewDataCollectionView({
           </div>
         </div>
 
-        {/* EXCEL EXPORT OPTIONS (Highlighted & Colorful) */}
-        <div className="mt-6 p-5 rounded-2xl bg-blue-50/60 border border-blue-200/80 max-w-md mx-auto space-y-2.5">
+        {/* EXCEL EXPORT OPTION (Only Single School ICR Data) */}
+        <div className="mt-6 p-5 rounded-2xl bg-blue-50/60 border border-blue-200/80 max-w-md mx-auto space-y-3">
           <div className="text-xs font-bold text-blue-900 uppercase tracking-wider flex items-center justify-center space-x-1.5">
             <FileSpreadsheet className="h-4 w-4 text-[#1d68e2]" />
-            <span>Official Excel Reports</span>
+            <span>Official School Excel Report</span>
           </div>
 
           <button
@@ -582,15 +567,6 @@ export default function NewDataCollectionView({
           >
             <Download className="h-4 w-4" />
             <span>Download School Installation ICR (.xlsx)</span>
-          </button>
-
-          <button
-            onClick={handleExportMaster}
-            disabled={isExportingMaster}
-            className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold border border-slate-300 flex items-center justify-center space-x-2 transition-all cursor-pointer disabled:opacity-50"
-          >
-            <Download className="h-3.5 w-3.5 text-emerald-700" />
-            <span>{isExportingMaster ? 'Generating Excel...' : 'Download Full Master Register (.xlsx)'}</span>
           </button>
         </div>
 
