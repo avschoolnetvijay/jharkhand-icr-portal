@@ -15,11 +15,13 @@ import {
   ArrowLeft,
   FileSpreadsheet,
   Check,
-  Layers
+  Layers,
+  RefreshCw
 } from 'lucide-react';
 import { CATEGORY_LABELS, getCategoryDevices } from '../data/deviceSchemas';
 import {
   checkSerialDuplicate,
+  checkSerialLive,
   verifyAllSerialsBeforeSubmit,
   syncRegisteredSerials,
   submitICR,
@@ -146,6 +148,66 @@ export default function NewDataCollectionView({
     ];
   }, [selectedSchool, deviceList]);
 
+  // Reactive intra-form conflicts map: { [deviceId]: { serial, otherIds: [...] } }
+  const intraFormConflicts = useMemo(() => {
+    const serialToIds = {};
+    Object.entries(serialValues).forEach(([id, val]) => {
+      const sn = (val || '').trim().toUpperCase();
+      if (sn && sn.length >= 3) {
+        if (!serialToIds[sn]) serialToIds[sn] = [];
+        serialToIds[sn].push(id);
+      }
+    });
+
+    const conflicts = {};
+    Object.entries(serialToIds).forEach(([sn, ids]) => {
+      if (ids.length > 1) {
+        ids.forEach((id) => {
+          conflicts[id] = {
+            serial: sn,
+            otherIds: ids.filter((otherId) => otherId !== id)
+          };
+        });
+      }
+    });
+    return conflicts;
+  }, [serialValues]);
+
+  // Live Re-check with Google Sheets if user edited or removed serial in Google Sheets
+  const handleRecheckSerial = async (id, val) => {
+    const cleanSerial = (val || '').trim().toUpperCase();
+    if (!cleanSerial) return;
+    setCheckingSerialId(id);
+    try {
+      const res = await checkSerialLive(cleanSerial);
+      if (res && res.exists) {
+        setDuplicateDetails((prev) => ({ ...prev, [id]: res.match }));
+        setFieldErrors((prev) => ({
+          ...prev,
+          [id]: `Duplicate! Serial is still registered in Google Sheets under ${res.match.schoolName}`
+        }));
+        alert(`Serial "${cleanSerial}" is still registered in Google Sheets under "${res.match.schoolName}". Please edit or remove it from the "Device_Serial_Inventory" sheet in Google Sheets, or enter a unique serial.`);
+      } else {
+        // Cleared from Google Sheets!
+        setDuplicateDetails((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setFieldErrors((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        alert(`VERIFIED! Serial "${cleanSerial}" is no longer found in Google Sheets. You can now submit!`);
+      }
+    } catch (err) {
+      alert(`Could not verify with Google Sheets: ${err.message}`);
+    } finally {
+      setCheckingSerialId(null);
+    }
+  };
+
   // Serial Change handler (Force Uppercase & Instant Local Validation)
   const handleSerialChange = (id, val) => {
     const upperVal = val.trim().toUpperCase();
@@ -170,21 +232,7 @@ export default function NewDataCollectionView({
       return;
     }
 
-    // 1. Instant intra-form duplicate check
-    const duplicateId = Object.keys(serialValues).find(
-      (key) => key !== id && serialValues[key] === upperVal
-    );
-    if (duplicateId) {
-      const otherDevice = deviceList.find((d) => d.id === duplicateId);
-      const otherName = otherDevice?.itemName || otherDevice?.label || otherDevice?.item_name || 'another device';
-      setFieldErrors((prev) => ({
-        ...prev,
-        [id]: `Duplicate! Same serial already entered for ${otherName} in this form.`
-      }));
-      return;
-    }
-
-    // 2. Instant local database check (0ms synchronous lookup)
+    // Instant local database check (0ms synchronous lookup)
     const res = checkSerialDuplicate(upperVal, selectedSchool?.udise);
     if (res.exists) {
       setDuplicateDetails((prev) => ({
@@ -198,7 +246,7 @@ export default function NewDataCollectionView({
       return;
     }
 
-    // Clean field
+    // Clean field if no database duplicate
     if (fieldErrors[id]) {
       setFieldErrors((prev) => {
         const next = { ...prev };
@@ -220,21 +268,7 @@ export default function NewDataCollectionView({
     if (!currentVal || currentVal.trim().length < 3 || !selectedSchool) return;
     const upperVal = currentVal.trim().toUpperCase();
 
-    // 1. Intra-form duplicate check
-    const duplicateId = Object.keys(serialValues).find(
-      (key) => key !== id && serialValues[key] === upperVal
-    );
-    if (duplicateId) {
-      const otherDevice = deviceList.find((d) => d.id === duplicateId);
-      const otherName = otherDevice?.itemName || otherDevice?.label || otherDevice?.item_name || 'another device';
-      setFieldErrors((prev) => ({
-        ...prev,
-        [id]: `Duplicate! Same serial already entered for ${otherName} in this form.`
-      }));
-      return;
-    }
-
-    // 2. Instant registry check
+    // Instant registry check
     const res = checkSerialDuplicate(upperVal, selectedSchool.udise);
     if (res.exists) {
       setDuplicateDetails((prev) => ({
@@ -291,24 +325,79 @@ export default function NewDataCollectionView({
       return;
     }
 
-    // 2. Immediate Block if any duplicate errors are already displayed
-    if (Object.keys(duplicateDetails).length > 0) {
-      const firstDup = Object.values(duplicateDetails)[0];
+    // 2. Intra-form duplicate check (mutually exclusive within current form)
+    if (Object.keys(intraFormConflicts).length > 0) {
+      const firstId = Object.keys(intraFormConflicts)[0];
+      const conflict = intraFormConflicts[firstId];
+      const dev1 = deviceList.find((d) => d.id === firstId);
+      const otherId = conflict.otherIds[0];
+      const dev2 = deviceList.find((d) => d.id === otherId);
+
       alert(
-        `DUPLICATE SERIAL DETECTED!\n\n` +
-        `Serial: ${firstDup.serialNumber}\n` +
-        `School: ${firstDup.schoolName} (UDISE: ${firstDup.udise})\n` +
-        `Installed By: ${firstDup.installedBy} (Mobile: ${firstDup.mobile})\n\n` +
-        `Submission blocked to guarantee zero duplicates. Please correct this serial.`
+        `CANNOT SUBMIT: DUPLICATE SERIAL IN SAME FORM!\n\n` +
+        `Serial Number: "${conflict.serial}"\n` +
+        `Assigned to: "${dev1?.itemName || dev1?.label || 'Device 1'}" AND "${dev2?.itemName || dev2?.label || 'Device 2'}"\n\n` +
+        `Every hardware device must have a unique serial number. Conflicting devices are highlighted in BOLD RED below.`
       );
+
+      const targetEl = document.getElementById(`device-card-${firstId}`);
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
       return;
     }
 
-    // 3. Pre-Submission Instant Verification (0ms local registry check)
-    const verification = verifyAllSerialsBeforeSubmit(deviceList, serialValues, selectedSchool);
+    // 3. Live Google Sheets verification for any displayed duplicate errors
+    if (Object.keys(duplicateDetails).length > 0) {
+      setIsSubmitting(true);
+      setSubmissionStatusText('Verifying serial uniqueness live with Google Sheets...');
+      let stillDuplicate = false;
+      let confirmedDup = null;
+
+      for (const [dupId, info] of Object.entries(duplicateDetails)) {
+        const live = await checkSerialLive(info.serialNumber);
+        if (live && live.exists) {
+          stillDuplicate = true;
+          confirmedDup = live.match || info;
+          break;
+        } else {
+          // Cleared in Google Sheet!
+          setDuplicateDetails((prev) => {
+            const next = { ...prev };
+            delete next[dupId];
+            return next;
+          });
+          setFieldErrors((prev) => {
+            const next = { ...prev };
+            delete next[dupId];
+            return next;
+          });
+        }
+      }
+      setIsSubmitting(false);
+
+      if (stillDuplicate && confirmedDup) {
+        alert(
+          `DUPLICATE SERIAL DETECTED IN GOOGLE SHEETS!\n\n` +
+          `Serial: ${confirmedDup.serialNumber}\n` +
+          `School: ${confirmedDup.schoolName} (UDISE: ${confirmedDup.udise})\n` +
+          `Installed By: ${confirmedDup.installedBy} (Mobile: ${confirmedDup.mobile})\n\n` +
+          `This serial is still present in Google Sheets ("Device_Serial_Inventory" sheet). Please change it in Google Sheet or enter a different serial.`
+        );
+        return;
+      }
+    }
+
+    // 4. Pre-Submission Live-Verified Verification
+    const verification = await verifyAllSerialsBeforeSubmit(deviceList, serialValues, selectedSchool);
     if (!verification.valid) {
       if (verification.type === 'intra_form') {
+        const firstConflictId = verification.conflictIds?.[0] || deviceList[0]?.id;
         alert(`CANNOT SUBMIT: ${verification.message}`);
+        const targetEl = document.getElementById(`device-card-${firstConflictId}`);
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
         return;
       }
 
@@ -332,7 +421,7 @@ export default function NewDataCollectionView({
           `Already Registered in: ${firstDup.match.schoolName} (UDISE: ${firstDup.match.udise})\n` +
           `Installed By: ${firstDup.match.installedBy} (Mobile: ${firstDup.match.mobile})\n` +
           `Installation Date: ${firstDup.match.date}\n\n` +
-          `To guarantee zero duplicates, this school cannot be submitted until all serials are unique.`
+          `Note: If you already changed or deleted this serial in Google Sheet, click "Re-check Sheet" on the red card to verify.`
         );
 
         // Smooth scroll to the conflicting device card
@@ -741,8 +830,10 @@ export default function NewDataCollectionView({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                         {sec.devices.map((dev) => {
                           const isChecking = checkingSerialId === dev.id;
-                          const hasError = fieldErrors[dev.id];
+                          const intraConflict = intraFormConflicts[dev.id];
                           const duplicateInfo = duplicateDetails[dev.id];
+                          const errorMsg = fieldErrors[dev.id];
+                          const hasError = Boolean(intraConflict || duplicateInfo || errorMsg);
                           const val = serialValues[dev.id] || '';
                           const globalIdx = deviceList.findIndex((d) => d.id === dev.id);
 
@@ -751,10 +842,12 @@ export default function NewDataCollectionView({
                               key={dev.id}
                               id={`device-card-${dev.id}`}
                               className={`p-3.5 rounded-2xl border transition-all ${
-                                duplicateInfo
-                                  ? 'border-red-400 bg-red-50/30 ring-2 ring-red-200'
-                                  : hasError
-                                  ? 'border-red-300 bg-red-50/20'
+                                intraConflict
+                                  ? 'border-2 border-red-500 bg-red-50/80 ring-2 ring-red-300 shadow-sm'
+                                  : duplicateInfo
+                                  ? 'border-2 border-rose-500 bg-rose-50/80 ring-2 ring-rose-300 shadow-sm'
+                                  : errorMsg
+                                  ? 'border-2 border-red-400 bg-red-50/50 ring-1 ring-red-200'
                                   : val
                                   ? 'border-emerald-200 bg-emerald-50/10'
                                   : 'border-slate-200 bg-slate-50/40'
@@ -776,8 +869,10 @@ export default function NewDataCollectionView({
                                   onChange={(e) => handleSerialChange(dev.id, e.target.value)}
                                   onBlur={(e) => handleSerialBlur(dev.id, e.target.value)}
                                   placeholder={dev.placeholder || `Enter ${dev.itemName || 'Device'} Serial Number`}
-                                  className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-xs font-mono font-bold text-slate-900 uppercase focus:border-[#1d68e2] focus:ring-1 focus:ring-blue-500 outline-hidden transition-all ${
-                                    hasError ? 'border-red-400 bg-red-50/30' : 'border-slate-300'
+                                  className={`w-full px-3.5 py-2.5 bg-white border rounded-xl text-xs font-mono font-bold uppercase outline-hidden transition-all ${
+                                    intraConflict || duplicateInfo || errorMsg
+                                      ? 'border-2 border-red-500 bg-red-100/50 text-red-950 focus:border-red-600 focus:ring-1 focus:ring-red-400'
+                                      : 'border-slate-300 text-slate-900 focus:border-[#1d68e2] focus:ring-1 focus:ring-blue-500'
                                   }`}
                                 />
                                 {isChecking && (
@@ -792,11 +887,44 @@ export default function NewDataCollectionView({
                                 )}
                               </div>
 
-                              {duplicateInfo ? (
+                              {/* 1. Intra-Form Conflict Alert Banner (BOLD RED) */}
+                              {intraConflict ? (
+                                <div className="mt-2.5 p-3 rounded-xl bg-red-100/90 border border-red-300 text-xs text-red-950 space-y-1.5 animate-in fade-in duration-200">
+                                  <div className="flex items-center space-x-1.5 font-bold text-red-700">
+                                    <AlertTriangle className="h-4 w-4 shrink-0 text-red-600" />
+                                    <span>Duplicate Serial in Same Form!</span>
+                                  </div>
+                                  <p className="text-[11px] text-red-800 font-medium">
+                                    Serial <strong className="font-mono text-red-950 bg-white px-1.5 py-0.5 rounded-md border border-red-200">{val}</strong> is entered multiple times in this form (also entered for{' '}
+                                    <strong className="text-red-950">
+                                      {intraConflict.otherIds
+                                        .map((oid) => {
+                                          const d = deviceList.find((item) => item.id === oid);
+                                          return d?.itemName || d?.item_name || d?.label || oid;
+                                        })
+                                        .join(', ')}
+                                    </strong>
+                                    ). Each device must have a unique serial number.
+                                  </p>
+                                </div>
+                              ) : duplicateInfo ? (
+                                /* 2. Database Duplicate Info Card with Re-Check Button */
                                 <div className="mt-2.5 p-3 rounded-xl bg-rose-50/95 border border-rose-200 text-xs text-rose-950 space-y-1.5 animate-in fade-in duration-200">
-                                  <div className="flex items-center space-x-1.5 font-bold text-rose-700">
-                                    <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
-                                    <span>Duplicate Serial Already Registered!</span>
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-1.5 font-bold text-rose-700">
+                                      <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                                      <span>Duplicate Serial in Google Sheets!</span>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRecheckSerial(dev.id, val)}
+                                      disabled={checkingSerialId === dev.id}
+                                      className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-white border border-rose-300 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+                                      title="Re-check live with Google Sheets"
+                                    >
+                                      <RefreshCw className={`h-3 w-3 ${checkingSerialId === dev.id ? 'animate-spin text-rose-600' : 'text-rose-500'}`} />
+                                      <span>{checkingSerialId === dev.id ? 'Checking...' : 'Re-check Sheet'}</span>
+                                    </button>
                                   </div>
 
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-[11px] pt-1.5 border-t border-rose-200/70">
@@ -832,9 +960,9 @@ export default function NewDataCollectionView({
                                     )}
                                   </div>
                                 </div>
-                              ) : hasError ? (
-                                <p className="text-[11px] text-red-600 font-medium mt-1">
-                                  {hasError}
+                              ) : errorMsg ? (
+                                <p className="text-[11px] text-red-600 font-bold mt-1">
+                                  {errorMsg}
                                 </p>
                               ) : null}
                             </div>

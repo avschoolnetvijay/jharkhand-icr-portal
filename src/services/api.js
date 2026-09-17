@@ -292,27 +292,38 @@ export const getRegisteredSerialsMap = () => {
 };
 
 /**
+ * Clear in-memory and local storage serial caches
+ */
+export const clearLocalSerialCache = () => {
+  inMemorySerialMap = null;
+  try {
+    localStorage.removeItem(STORAGE_SERIAL_REGISTRY);
+    localStorage.removeItem(STORAGE_INVENTORY);
+  } catch (e) {}
+};
+
+/**
  * Background / on-demand synchronization of the registered serials registry.
+ * Completely rebuilds registry from live Google Sheets inventory.
  */
 export const syncRegisteredSerials = async (forceRemote = false) => {
-  const currentMap = { ...getRegisteredSerialsMap() };
   const url = getApiUrl();
-
-  if (!url) {
-    inMemorySerialMap = currentMap;
-    return currentMap;
-  }
+  if (!url) return getRegisteredSerialsMap();
 
   try {
-    const res = await fetch(`${url}?action=getInventory`);
-    const json = await res.json();
+    const res = await fetch(`${url}?action=getInventory&_t=${Date.now()}`);
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); } catch { return getRegisteredSerialsMap(); }
+
     if (json.success && Array.isArray(json.data)) {
+      const freshMap = {};
       json.data.forEach(r => {
         const sn = String(r.Serial_Number || '').trim().toUpperCase();
         if (sn) {
           const matchedUdise = String(r.UDISE_Code || '');
           const matchedSchool = defaultSchools.find(s => String(s.udise) === matchedUdise);
-          currentMap[sn] = {
+          freshMap[sn] = {
             serialNumber: sn,
             udise: matchedUdise || r.UDISE_Code,
             schoolName: r.School_Name || matchedSchool?.school_name || 'School',
@@ -327,17 +338,78 @@ export const syncRegisteredSerials = async (forceRemote = false) => {
         }
       });
 
-      inMemorySerialMap = currentMap;
+      inMemorySerialMap = freshMap;
       try {
-        localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(currentMap));
+        localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(freshMap));
+        // Clean old local inventory to prevent resurrecting deleted serials
+        localStorage.removeItem(STORAGE_INVENTORY);
       } catch (e) {}
+
+      return freshMap;
     }
   } catch (err) {
     console.warn('Could not sync remote serial registry:', err);
   }
 
-  inMemorySerialMap = currentMap;
-  return currentMap;
+  return getRegisteredSerialsMap();
+};
+
+/**
+ * Real-time Single Serial Live Check against Google Sheets.
+ * If serial was changed/deleted in Google Sheet, this purges local cache.
+ */
+export const checkSerialLive = async (serialNumber) => {
+  const url = getApiUrl();
+  const sn = (serialNumber || '').trim().toUpperCase();
+  if (!url || !sn) return { exists: false };
+
+  try {
+    const res = await fetch(`${url}?action=checkSerial&serial=${encodeURIComponent(sn)}&_t=${Date.now()}`);
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); } catch { return { exists: false }; }
+
+    if (json.success) {
+      if (json.exists && json.match) {
+        const matchedUdise = String(json.match.udise || json.match.UDISE_Code || '');
+        const matchedSchool = defaultSchools.find(s => String(s.udise) === matchedUdise);
+        const matchData = {
+          serialNumber: sn,
+          udise: matchedUdise || json.match.udise,
+          schoolName: json.match.schoolName || matchedSchool?.school_name || 'School',
+          district: json.match.district || matchedSchool?.district || '-',
+          block: json.match.block || matchedSchool?.block || '-',
+          itemName: json.match.itemName || 'Hardware Asset',
+          installedBy: json.match.installedBy || json.match.updatedBy || '-',
+          mobile: json.match.mobile || '-',
+          date: formatDateDDMMMYYYY(json.match.installDate || json.match.date),
+          timestamp: json.match.timestamp || ''
+        };
+
+        // Update local cache with latest match
+        const reg = getRegisteredSerialsMap();
+        reg[sn] = matchData;
+        try { localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(reg)); } catch (e) {}
+
+        return { exists: true, match: matchData };
+      } else {
+        // DOES NOT EXIST IN GOOGLE SHEETS!
+        // Remove from local memory and localStorage so user is not blocked!
+        if (inMemorySerialMap) delete inMemorySerialMap[sn];
+        try {
+          const reg = JSON.parse(localStorage.getItem(STORAGE_SERIAL_REGISTRY) || '{}');
+          delete reg[sn];
+          localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(reg));
+        } catch (e) {}
+
+        return { exists: false };
+      }
+    }
+  } catch (err) {
+    console.warn('Live serial check error:', err);
+  }
+
+  return { exists: false };
 };
 
 /**
@@ -367,38 +439,60 @@ export const checkSerialDuplicate = (serialNumber, currentUdise) => {
 /**
  * Comprehensive Pre-Submission Verification
  * Ensures ZERO duplicate serial numbers can ever be submitted to Google Sheets.
- * Runs instantly in 0ms using the pre-synced registry cache so submission is fast!
+ * If a local duplicate is suspected, it double-checks live with Google Sheets.
+ * If user edited/deleted it in Google Sheet, it clears local cache and permits submission!
  */
-export const verifyAllSerialsBeforeSubmit = (deviceList, serialValues, selectedSchool) => {
+export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, selectedSchool) => {
   // 1. Intra-form duplicate check (mutually exclusive within current form)
-  const seenInForm = new Map();
+  const serialToDevices = new Map();
+  const intraConflicts = [];
+  const conflictIds = new Set();
+
   for (const d of deviceList) {
     const sn = String(serialValues[d.id] || '').trim().toUpperCase();
-    if (!sn) continue;
+    if (!sn || sn.length < 3) continue;
 
-    if (seenInForm.has(sn)) {
-      const other = seenInForm.get(sn);
-      return {
-        valid: false,
-        type: 'intra_form',
-        conflicts: [d.id, other.id],
-        message: `Duplicate serial number within this form! Serial "${sn}" is assigned to both "${other.name}" and "${d.itemName || d.label}".`
-      };
+    if (serialToDevices.has(sn)) {
+      const others = serialToDevices.get(sn);
+      others.forEach(other => {
+        intraConflicts.push({
+          id1: d.id,
+          id2: other.id,
+          serial: sn,
+          name1: d.itemName || d.item_name || d.label || 'Device',
+          name2: other.name
+        });
+        conflictIds.add(d.id);
+        conflictIds.add(other.id);
+      });
+      others.push({ id: d.id, name: d.itemName || d.item_name || d.label || 'Device' });
+    } else {
+      serialToDevices.set(sn, [{ id: d.id, name: d.itemName || d.item_name || d.label || 'Device' }]);
     }
-    seenInForm.set(sn, { id: d.id, name: d.itemName || d.label });
   }
 
-  // 2. Database duplicate check against local registered serials cache (0ms instant)
+  if (intraConflicts.length > 0) {
+    const first = intraConflicts[0];
+    return {
+      valid: false,
+      type: 'intra_form',
+      conflicts: intraConflicts,
+      conflictIds: Array.from(conflictIds),
+      message: `Duplicate serial number within this form! Serial "${first.serial}" is assigned to both "${first.name1}" and "${first.name2}". Every hardware device must have a unique serial number.`
+    };
+  }
+
+  // 2. Database duplicate check against registered serials cache
   const registry = getRegisteredSerialsMap();
-  const duplicates = [];
+  const suspectedDuplicates = [];
 
   for (const d of deviceList) {
     const sn = String(serialValues[d.id] || '').trim().toUpperCase();
-    if (!sn) continue;
+    if (!sn || sn.length < 3) continue;
 
     const match = registry[sn];
     if (match) {
-      duplicates.push({
+      suspectedDuplicates.push({
         id: d.id,
         deviceName: d.itemName || d.item_name || d.label || 'Device',
         serialNumber: sn,
@@ -407,13 +501,36 @@ export const verifyAllSerialsBeforeSubmit = (deviceList, serialValues, selectedS
     }
   }
 
-  if (duplicates.length > 0) {
-    return {
-      valid: false,
-      type: 'already_registered',
-      duplicates: duplicates,
-      message: `Duplicate Serial Detected! ${duplicates.length} serial number(s) are already registered in Google Sheets.`
-    };
+  // Live verification with Google Sheets for suspected duplicates:
+  // If user changed/deleted the serial in Google Sheet, this live check detects it and DOES NOT BLOCK!
+  if (suspectedDuplicates.length > 0) {
+    const verifiedDuplicates = [];
+    for (const dup of suspectedDuplicates) {
+      try {
+        const live = await checkSerialLive(dup.serialNumber);
+        if (live && live.exists) {
+          verifiedDuplicates.push({
+            ...dup,
+            match: live.match || dup.match
+          });
+        } else {
+          // Serial was removed/changed in Google Sheets! Remove from local cache
+          if (inMemorySerialMap) delete inMemorySerialMap[dup.serialNumber];
+        }
+      } catch (err) {
+        // Fallback to cached match if network fails
+        verifiedDuplicates.push(dup);
+      }
+    }
+
+    if (verifiedDuplicates.length > 0) {
+      return {
+        valid: false,
+        type: 'already_registered',
+        duplicates: verifiedDuplicates,
+        message: `Duplicate Serial Detected! ${verifiedDuplicates.length} serial number(s) are already registered in Google Sheets.`
+      };
+    }
   }
 
   return { valid: true };
