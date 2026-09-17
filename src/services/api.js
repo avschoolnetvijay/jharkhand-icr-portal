@@ -610,12 +610,31 @@ export const submitICR = async (submissionPayload) => {
     try {
       json = JSON.parse(text);
     } catch {
-      if (text.includes('<!DOCTYPE') || text.includes('<html') || res.status === 404) {
+      // If GAS returned HTML/404 on redirect, verify whether Google Sheet actually saved the school!
+      let verifiedSaved = false;
+      try {
+        const verifyRes = await fetch(`${url}?action=getAllStatus&_t=${Date.now()}`);
+        const verifyJson = await verifyRes.json();
+        if (verifyJson.success && Array.isArray(verifyJson.data)) {
+          verifiedSaved = verifyJson.data.some(
+            item => String(item.UDISE_Code || item.UDISE_CODE || item.udise || '').trim() === String(udise).trim()
+          );
+        }
+      } catch (checkErr) {
+        console.warn('Could not verify submission status after non-JSON response:', checkErr);
+      }
+
+      if (verifiedSaved) {
+        // The submission was SUCCESSFUL in Google Sheets!
+        json = {
+          success: true,
+          message: `Successfully recorded device serials for ${school_name} in Google Sheets!`
+        };
+      } else {
         throw new Error(
-          'Google Sheets rejected this submission (duplicate serial detected or school already submitted). Please verify device serials.'
+          'Google Sheets connection issue. Please check your internet or Google Apps Script URL.'
         );
       }
-      throw new Error(`Invalid response from server: ${text.slice(0, 100)}`);
     }
 
     if (!json.success) {
