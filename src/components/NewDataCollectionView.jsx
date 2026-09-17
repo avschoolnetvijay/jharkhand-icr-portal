@@ -530,8 +530,8 @@ export default function NewDataCollectionView({
         <h2 className="text-2xl font-black text-slate-900">
           School Successfully Digitized!
         </h2>
-        <p className="text-xs sm:text-sm text-slate-600 mt-2">
-          {submissionSuccessData.school.school_name} (UDISE: {submissionSuccessData.school.udise}) has been recorded row-wise into Google Sheets.
+        <p className="text-xs sm:text-sm text-slate-600 mt-2 font-medium">
+          {submissionSuccessData.school.school_name} (UDISE: {submissionSuccessData.school.udise})
         </p>
 
         {/* Details Card */}
