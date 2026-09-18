@@ -344,91 +344,7 @@ export default function NewDataCollectionView({
       return;
     }
 
-    // 3. Live Google Sheets verification for any displayed duplicate errors
-    if (Object.keys(duplicateDetails).length > 0) {
-      setIsSubmitting(true);
-      setSubmissionStatusText('Verifying serial uniqueness live with Google Sheets...');
-      let stillDuplicate = false;
-      let confirmedDup = null;
-
-      for (const [dupId, info] of Object.entries(duplicateDetails)) {
-        const live = await checkSerialLive(info.serialNumber);
-        if (live && live.exists) {
-          stillDuplicate = true;
-          confirmedDup = live.match || info;
-          break;
-        } else {
-          // Cleared in Google Sheet!
-          setDuplicateDetails((prev) => {
-            const next = { ...prev };
-            delete next[dupId];
-            return next;
-          });
-          setFieldErrors((prev) => {
-            const next = { ...prev };
-            delete next[dupId];
-            return next;
-          });
-        }
-      }
-      setIsSubmitting(false);
-
-      if (stillDuplicate && confirmedDup) {
-        alert(
-          `DUPLICATE SERIAL DETECTED IN GOOGLE SHEETS!\n\n` +
-          `Serial: ${confirmedDup.serialNumber}\n` +
-          `School: ${confirmedDup.schoolName} (UDISE: ${confirmedDup.udise})\n` +
-          `Installed By: ${confirmedDup.installedBy} (Mobile: ${confirmedDup.mobile})\n\n` +
-          `This serial is still present in Google Sheets ("Device_Serial_Inventory" sheet). Please change it in Google Sheet or enter a different serial.`
-        );
-        return;
-      }
-    }
-
-    // 4. Pre-Submission Live-Verified Verification
-    const verification = await verifyAllSerialsBeforeSubmit(deviceList, serialValues, selectedSchool);
-    if (!verification.valid) {
-      if (verification.type === 'intra_form') {
-        const firstConflictId = verification.conflictIds?.[0] || deviceList[0]?.id;
-        alert(`CANNOT SUBMIT: ${verification.message}`);
-        const targetEl = document.getElementById(`device-card-${firstConflictId}`);
-        if (targetEl) {
-          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-        return;
-      }
-
-      if (verification.type === 'already_registered' && verification.duplicates) {
-        const newErrors = { ...fieldErrors };
-        const newDuplicates = { ...duplicateDetails };
-
-        verification.duplicates.forEach((dup) => {
-          newDuplicates[dup.id] = dup.match;
-          newErrors[dup.id] = `Duplicate! Serial already registered in ${dup.match.schoolName}`;
-        });
-
-        setDuplicateDetails(newDuplicates);
-        setFieldErrors(newErrors);
-
-        const firstDup = verification.duplicates[0];
-        alert(
-          `SUBMISSION BLOCKED: DUPLICATE SERIAL DETECTED!\n\n` +
-          `Serial Number: ${firstDup.serialNumber}\n` +
-          `Device: ${firstDup.deviceName}\n` +
-          `Already Registered in: ${firstDup.match.schoolName} (UDISE: ${firstDup.match.udise})\n` +
-          `Installed By: ${firstDup.match.installedBy} (Mobile: ${firstDup.match.mobile})\n` +
-          `Installation Date: ${firstDup.match.date}\n\n` +
-          `Note: If you already changed or deleted this serial in Google Sheet, click "Re-check Sheet" on the red card to verify.`
-        );
-
-        // Smooth scroll to the conflicting device card
-        const targetEl = document.getElementById(`device-card-${firstDup.id}`);
-        if (targetEl) {
-          targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-        return;
-      }
-    }
+    // 3. submitICR handles all duplicate checking via fast batch GET call
 
     // 4. Fast Direct Submission to Google Sheets
     setIsSubmitting(true);
@@ -464,8 +380,9 @@ export default function NewDataCollectionView({
         installDate
       });
 
+      // Delay parent refresh so success screen renders first (avoids "Already Digitized" flash)
       if (onSubmissionSuccess) {
-        onSubmissionSuccess(selectedSchool.udise);
+        setTimeout(() => onSubmissionSuccess(selectedSchool.udise), 2000);
       }
     } catch (err) {
       if (err.duplicateDetails) {

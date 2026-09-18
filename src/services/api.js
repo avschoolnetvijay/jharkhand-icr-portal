@@ -390,7 +390,7 @@ export const checkSerialLive = async (serialNumber) => {
           district: json.match.district || matchedSchool?.district || '-',
           block: json.match.block || matchedSchool?.block || '-',
           itemName: json.match.itemName || 'Hardware Asset',
-          installedBy: json.match.installedBy || json.match.updatedBy || '-',
+          installedBy: json.match.installedBy || json.match.updatedByName || json.match.updatedBy || '-',
           mobile: json.match.mobile || '-',
           date: formatDateDDMMMYYYY(json.match.installDate || json.match.date),
           timestamp: json.match.timestamp || ''
@@ -648,15 +648,16 @@ export const submitICR = async (submissionPayload) => {
     if (preCheck && preCheck.success && preCheck.exists && Array.isArray(preCheck.matches) && preCheck.matches.length > 0) {
       // Duplicate found before submission — block it!
       const firstDup = preCheck.matches[0];
+      const installerName = firstDup.installedBy || firstDup.updatedByName || firstDup.updatedBy || '';
       const dupErr = new Error(
-        `DUPLICATE ERROR: Serial "${firstDup.serialNumber}" is already registered in "${firstDup.schoolName}" (UDISE: ${firstDup.udise}) — Installed by: ${firstDup.installedBy || '-'}`
+        `DUPLICATE ERROR: Serial "${firstDup.serialNumber}" is already registered in "${firstDup.schoolName}" (UDISE: ${firstDup.udise}) — Installed by: ${installerName || 'Unknown'}`
       );
       dupErr.duplicateDetails = {
         serial: firstDup.serialNumber,
         schoolName: firstDup.schoolName,
         udise: firstDup.udise,
         itemName: firstDup.itemName,
-        installedBy: firstDup.installedBy,
+        installedBy: installerName,
         mobile: firstDup.mobile,
         date: firstDup.installDate,
         allMatches: preCheck.matches
@@ -712,23 +713,6 @@ export const submitICR = async (submissionPayload) => {
       throw new Error('Network error: Could not connect to Google Sheets. Please check your internet connection.');
     }
   }
-
-  // STEP 3: VERIFY via GET — Best-effort confirmation (non-blocking)
-  // GAS data IS being saved (POST works), but GET timing varies due to LockService.
-  // We NEVER block success here — pre-submit duplicate check (Step 1) is the real guard.
-  await sleep(3000);
-
-  if (allSerials.length > 0) {
-    const verifyUrl = `${url}?action=checkBatchSerials&serials=${encodeURIComponent(allSerials.join(','))}&_t=${Date.now()}`;
-    const verified = await safeGet(verifyUrl, 2, 2000);
-    if (verified && verified.success && verified.exists) {
-      console.log('✓ Data confirmed in Google Sheets via GET verification.');
-    } else {
-      // Data may still be writing — GAS LockService can be slow. Don't block success.
-      console.warn('Verify GET inconclusive — data likely saved since POST reached server.');
-    }
-  }
-
 
 
   // STEP 4: Update local caches (for instant UI updates while GAS syncs)

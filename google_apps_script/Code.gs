@@ -178,25 +178,46 @@ function doGet(e) {
       const matches = [];
 
       if (data.length > 1 && list.length > 0) {
+        // Use header-based lookup for robustness
+        const headers = data[0];
+        const colIdx = {};
+        headers.forEach(function(h, i) { colIdx[String(h).trim()] = i; });
+
+        var serialCol = colIdx['Serial_Number'] !== undefined ? colIdx['Serial_Number'] : 9;
+        var udiseCol = colIdx['UDISE_Code'] !== undefined ? colIdx['UDISE_Code'] : 1;
+        var snilCol = colIdx['SNIL_Code'] !== undefined ? colIdx['SNIL_Code'] : 2;
+        var schoolCol = colIdx['School_Name'] !== undefined ? colIdx['School_Name'] : 3;
+        var distCol = colIdx['District'] !== undefined ? colIdx['District'] : 4;
+        var blockCol = colIdx['Block_Name'] !== undefined ? colIdx['Block_Name'] : 5;
+        var catCol = colIdx['Lab_Category'] !== undefined ? colIdx['Lab_Category'] : 6;
+        var itemCol = colIdx['Item_Name'] !== undefined ? colIdx['Item_Name'] : 7;
+        var makeCol = colIdx['Make_And_Model'] !== undefined ? colIdx['Make_And_Model'] : 8;
+        var dateCol = colIdx['Installation_Date'] !== undefined ? colIdx['Installation_Date'] : 12;
+        // Handle both old and new header names for installer
+        var installerCol = colIdx['Installed_By'] !== undefined ? colIdx['Installed_By'] : (colIdx['Updated_By_Name'] !== undefined ? colIdx['Updated_By_Name'] : 13);
+        var mobileCol = colIdx['Updated_By_Mobile'] !== undefined ? colIdx['Updated_By_Mobile'] : 14;
+        var tsCol = colIdx['Submission_Timestamp'] !== undefined ? colIdx['Submission_Timestamp'] : 15;
+
         const serialSet = new Set(list);
         for (let i = 1; i < data.length; i++) {
           const row = data[i];
-          const sn = String(row[9] || '').trim().toUpperCase();
+          const sn = String(row[serialCol] || '').trim().toUpperCase();
           if (serialSet.has(sn)) {
             matches.push({
               serialNumber: sn,
-              udise: row[1],
-              snil: row[2],
-              schoolName: row[3],
-              district: row[4],
-              block: row[5],
-              category: row[6],
-              itemName: row[7],
-              makeModel: row[8],
-              installDate: formatDDMMMYYYY(row[12]),
-              installedBy: row[13],
-              mobile: row[14],
-              timestamp: row[15]
+              udise: row[udiseCol],
+              snil: row[snilCol],
+              schoolName: row[schoolCol],
+              district: row[distCol],
+              block: row[blockCol],
+              category: row[catCol],
+              itemName: row[itemCol],
+              makeModel: row[makeCol],
+              installDate: formatDDMMMYYYY(row[dateCol]),
+              installedBy: row[installerCol] || '',
+              updatedByName: row[installerCol] || '',
+              mobile: row[mobileCol],
+              timestamp: row[tsCol]
             });
           }
         }
@@ -415,28 +436,39 @@ function findSerialInInventory(ss, serial) {
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return null;
 
+  // Header-based lookup
+  const headers = data[0];
+  const colIdx = {};
+  headers.forEach(function(h, i) { colIdx[String(h).trim()] = i; });
+
+  var serialCol = colIdx['Serial_Number'] !== undefined ? colIdx['Serial_Number'] : 9;
+  var installerCol = colIdx['Installed_By'] !== undefined ? colIdx['Installed_By'] : (colIdx['Updated_By_Name'] !== undefined ? colIdx['Updated_By_Name'] : 13);
+  var mobileCol = colIdx['Updated_By_Mobile'] !== undefined ? colIdx['Updated_By_Mobile'] : 14;
+
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    const sn = String(row[9] || '').trim().toUpperCase();
+    const sn = String(row[serialCol] || '').trim().toUpperCase();
     if (sn === serial) {
       return {
         serialNumber: sn,
-        udise: row[1],
-        snil: row[2],
-        schoolName: row[3],
-        district: row[4],
-        block: row[5],
-        category: row[6],
-        itemName: row[7],
-        makeModel: row[8],
-        installDate: formatDDMMMYYYY(row[12]),
-        installedBy: row[13],
-        mobile: row[14],
-        timestamp: row[15]
+        udise: row[colIdx['UDISE_Code'] !== undefined ? colIdx['UDISE_Code'] : 1],
+        snil: row[colIdx['SNIL_Code'] !== undefined ? colIdx['SNIL_Code'] : 2],
+        schoolName: row[colIdx['School_Name'] !== undefined ? colIdx['School_Name'] : 3],
+        district: row[colIdx['District'] !== undefined ? colIdx['District'] : 4],
+        block: row[colIdx['Block_Name'] !== undefined ? colIdx['Block_Name'] : 5],
+        category: row[colIdx['Lab_Category'] !== undefined ? colIdx['Lab_Category'] : 6],
+        itemName: row[colIdx['Item_Name'] !== undefined ? colIdx['Item_Name'] : 7],
+        makeModel: row[colIdx['Make_And_Model'] !== undefined ? colIdx['Make_And_Model'] : 8],
+        installDate: formatDDMMMYYYY(row[colIdx['Installation_Date'] !== undefined ? colIdx['Installation_Date'] : 12]),
+        installedBy: row[installerCol] || '',
+        updatedByName: row[installerCol] || '',
+        mobile: row[mobileCol],
+        timestamp: row[colIdx['Submission_Timestamp'] !== undefined ? colIdx['Submission_Timestamp'] : 15]
       };
     }
   }
   return null;
+
 }
 
 /**
