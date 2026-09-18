@@ -46,7 +46,7 @@ export default function Header({
                   ? 'bg-blue-50 text-blue-800 border-blue-200'
                   : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100 shadow-2xs'
               }`}
-              title={isSyncing ? 'Synchronizing live with Google Sheets...' : 'Click to refresh real-time data from Google Sheets'}
+              title={isSyncing ? 'Synchronizing live with Database...' : 'Click to refresh real-time data'}
             >
               <span className={`h-2 w-2 rounded-full shrink-0 ${
                 !isApiConnected

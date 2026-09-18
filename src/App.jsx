@@ -187,14 +187,14 @@ export default function App() {
                 Synchronizing Real-Time Status
               </h3>
               <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                Connecting with Google Sheets to verify live installation records across 679 Jharkhand schools...
+                Connecting with Central Database to verify live installation records across 679 Jharkhand schools...
               </p>
               <div className="w-full max-w-xs mx-auto bg-slate-100 rounded-full h-1.5 mt-5 overflow-hidden border border-slate-200/60">
                 <div className="bg-[#1d68e2] h-1.5 rounded-full w-2/3 animate-pulse"></div>
               </div>
               <div className="mt-4 flex items-center justify-center space-x-2 text-[11px] text-slate-500 font-medium">
                 <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
-                <span>Google Sheets Cloud Verification Active</span>
+                <span>Cloud Database Active & Synchronized</span>
               </div>
             </div>
           ) : (
@@ -318,7 +318,7 @@ export default function App() {
                     <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
                       <div>
                         <div className="font-bold text-slate-900">Row-Wise Asset Register Protocol</div>
-                        <div className="text-slate-500">1 Row per physical hardware asset in Google Sheet Device_Serial_Inventory</div>
+                        <div className="text-slate-500">1 Row per physical hardware asset in Central Inventory Registry</div>
                       </div>
                       <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-semibold">Active</span>
                     </div>
@@ -349,7 +349,7 @@ export default function App() {
 
                   <div className="p-4 rounded-2xl bg-blue-50/60 border border-blue-200 text-xs text-slate-700 leading-relaxed space-y-2">
                     <p>
-                      For duplicate serial alerts, master school corrections, or Google Apps Script Web App sync inquiries, please contact the Jharkhand ICT Project Operations team.
+                      For duplicate serial alerts, master school corrections, or database sync inquiries, please contact the Jharkhand ICT Project Operations team.
                     </p>
                     <p className="font-bold text-slate-900">
                       Portal Version: 2.5 (Schoolnet Enterprise Edition)

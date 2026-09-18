@@ -187,7 +187,7 @@ export default function DigitizationForm({ school, onSubmissionSuccess }) {
       const result = await submitICR(payload);
 
       if (result.success) {
-        alert(`Success: Recorded ${result.totalDevices} device serial numbers for ${school.school_name} into Google Sheets.`);
+        alert(`Success: Recorded ${result.totalDevices} device serial numbers for ${school.school_name} into Database.`);
         onSubmissionSuccess(school.udise);
       } else {
         alert(`Submission Failed: ${result.error || 'Unknown error'}`);
@@ -411,7 +411,7 @@ export default function DigitizationForm({ school, onSubmissionSuccess }) {
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Recording in Google Sheets...</span>
+                <span>Saving Data...</span>
               </>
             ) : (
               <>
@@ -536,7 +536,7 @@ export default function DigitizationForm({ school, onSubmissionSuccess }) {
                   Confirm Submission
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Summary before writing to Google Sheet
+                  Summary before saving to Database
                 </p>
               </div>
             </div>
@@ -581,7 +581,7 @@ export default function DigitizationForm({ school, onSubmissionSuccess }) {
                 onClick={handleConfirmSubmit}
                 className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer transition-colors"
               >
-                Submit to Google Sheet
+                Submit & Digitize ICR
               </button>
             </div>
           </div>

@@ -170,7 +170,7 @@ export default function NewDataCollectionView({
     return conflicts;
   }, [serialValues]);
 
-  // Live Re-check with Google Sheets if user edited or removed serial in Google Sheets
+  // Live Re-check if user edited or removed serial
   const handleRecheckSerial = async (id, val) => {
     const cleanSerial = (val || '').trim().toUpperCase();
     if (!cleanSerial) return;
@@ -181,11 +181,11 @@ export default function NewDataCollectionView({
         setDuplicateDetails((prev) => ({ ...prev, [id]: res.match }));
         setFieldErrors((prev) => ({
           ...prev,
-          [id]: `Duplicate! Serial is still registered in Google Sheets under ${res.match.schoolName}`
+          [id]: `Duplicate! Serial is already registered under ${res.match.schoolName}`
         }));
-        alert(`Serial "${cleanSerial}" is still registered in Google Sheets under "${res.match.schoolName}". Please edit or remove it from the "Device_Serial_Inventory" sheet in Google Sheets, or enter a unique serial.`);
+        alert(`Serial "${cleanSerial}" is already registered under "${res.match.schoolName}". Please enter a unique hardware serial number.`);
       } else {
-        // Cleared from Google Sheets!
+        // Cleared from Database!
         setDuplicateDetails((prev) => {
           const next = { ...prev };
           delete next[id];
@@ -196,10 +196,10 @@ export default function NewDataCollectionView({
           delete next[id];
           return next;
         });
-        alert(`VERIFIED! Serial "${cleanSerial}" is no longer found in Google Sheets. You can now submit!`);
+        alert(`VERIFIED! Serial "${cleanSerial}" is available. You can now submit!`);
       }
     } catch (err) {
-      alert(`Could not verify with Google Sheets: ${err.message}`);
+      alert(`Could not verify serial: ${err.message}`);
     } finally {
       setCheckingSerialId(null);
     }
@@ -346,9 +346,9 @@ export default function NewDataCollectionView({
 
     // 3. submitICR handles all duplicate checking via fast batch GET call
 
-    // 4. Fast Direct Submission to Google Sheets
+    // 4. Fast Direct Submission to Database
     setIsSubmitting(true);
-    setSubmissionStatusText('Live duplicate checking with Google Sheets...');
+    setSubmissionStatusText('Duplicate checking and verifying...');
 
     try {
       const submissionPayload = {

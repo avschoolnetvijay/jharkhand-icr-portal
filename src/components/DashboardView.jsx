@@ -138,7 +138,7 @@ export default function DashboardView({
             onClick={onRefresh}
             disabled={isSyncing}
             className="inline-flex items-center space-x-2 px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 shadow-2xs transition-all cursor-pointer disabled:opacity-50 self-start sm:self-auto"
-            title="Refresh real-time data from Google Sheets"
+            title="Refresh real-time data from Central Database"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? 'animate-spin text-[#1d68e2]' : 'text-slate-500'}`} />
             <span>{isSyncing ? 'Syncing...' : 'Refresh Data'}</span>

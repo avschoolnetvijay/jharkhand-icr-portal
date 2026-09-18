@@ -115,7 +115,7 @@ export default function ReadOnlySubmissionView({ school, statusInfo }) {
       <div className="bg-slate-50 px-4 sm:px-6 py-2.5 border-t border-slate-200 text-[11px] text-slate-500 flex justify-between items-center">
         <span>Total Hardware Assets: <strong>{devices.length} items</strong></span>
         <span className="text-emerald-700 font-semibold flex items-center">
-          <CheckCircle2 className="h-3 w-3 mr-1" /> Synced in Google Sheet
+          <CheckCircle2 className="h-3 w-3 mr-1" /> Synced in Database
         </span>
       </div>
     </div>

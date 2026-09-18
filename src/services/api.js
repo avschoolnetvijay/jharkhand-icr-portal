@@ -117,6 +117,10 @@ export const seedMasterSchoolsToGoogleSheet = async () => {
   return seedMasterSchoolsToSupabase();
 };
 
+export const seedMasterSchoolsToDatabase = async () => {
+  return seedMasterSchoolsToSupabase();
+};
+
 export const seedMasterSchoolsToSupabase = async () => {
   try {
     const rows = defaultSchools.map(s => ({
