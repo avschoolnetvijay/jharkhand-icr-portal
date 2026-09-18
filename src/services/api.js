@@ -714,24 +714,29 @@ export const submitICR = async (submissionPayload) => {
   }
 
   // STEP 3: VERIFY via GET — Confirm data was actually saved in Google Sheets
-  // Wait briefly for GAS to finish writing (GAS has LockService, usually done in <2s)
-  await sleep(2500);
+  // GAS with LockService can take 3-8 seconds to write. Wait generously.
+  await sleep(5000);
 
   if (allSerials.length > 0) {
+    // Try up to 4 times, 3 seconds apart = max 14 more seconds of retrying
     const verifyUrl = `${url}?action=checkBatchSerials&serials=${encodeURIComponent(allSerials.join(','))}&_t=${Date.now()}`;
-    const verified = await safeGet(verifyUrl, 3, 2000);
+    const verified = await safeGet(verifyUrl, 4, 3000);
 
-    if (verified && verified.success) {
+    if (verified === null) {
+      // GET itself failed (network issue) — POST reached server, proceed as success
+      console.warn('Verification GET failed, assuming success since POST reached server');
+    } else if (verified.success) {
       if (!verified.exists || !verified.matches || verified.matches.length === 0) {
-        // Data not found in Google Sheets — submission failed silently
+        // Data not found — submission may have failed. Throw clear error.
         throw new Error(
-          'Submission failed: Data did not reach Google Sheets. Please try again. If this persists, check your Google Apps Script URL in Settings.'
+          'Submission failed: Data did not save in Google Sheets. Please check your internet and try again.'
         );
       }
-      // Data confirmed in Google Sheets!
+      // Data confirmed in Google Sheets! ✓
     }
-    // If GET itself failed (network issue), we proceed cautiously with local cache only
+    // verified.success === false means GAS error — still proceed (POST may have saved)
   }
+
 
   // STEP 4: Update local caches (for instant UI updates while GAS syncs)
   const newRowItems = normalizedDevices.map(d => ({
