@@ -77,10 +77,7 @@ export const getCachedMasterSchools = () => {
 export const getCachedStatusMap = () => {
   try {
     const cached = localStorage.getItem(STORAGE_STATUS_CACHE);
-    const local = localStorage.getItem(STORAGE_STATUS);
-    const cachedObj = cached ? JSON.parse(cached) : {};
-    const localObj = local ? JSON.parse(local) : {};
-    return { ...cachedObj, ...localObj };
+    return cached ? JSON.parse(cached) : {};
   } catch {
     return {};
   }
@@ -201,9 +198,10 @@ export const fetchSchoolStatusMap = async () => {
       // If rows were deleted in Google Sheets (or sheet is cleared), update cache to exactly match remoteMap.
       try {
         localStorage.setItem(STORAGE_STATUS_CACHE, JSON.stringify(remoteMap));
+        // Always remove unverified local status so ghost entries can never survive
+        localStorage.removeItem(STORAGE_STATUS);
         if (Object.keys(remoteMap).length === 0) {
-          // If sheet has 0 entries, also clear local pending status & local inventory
-          localStorage.removeItem(STORAGE_STATUS);
+          // If sheet has 0 entries, also clear local inventory & serial registry
           localStorage.removeItem(STORAGE_INVENTORY);
           localStorage.removeItem(STORAGE_SERIAL_REGISTRY);
           inMemorySerialMap = {};
@@ -646,11 +644,11 @@ export const submitICR = async (submissionPayload) => {
     const preCheck = await safeGet(batchUrl, 2, 1000);
 
     if (preCheck && preCheck.success && preCheck.exists && Array.isArray(preCheck.matches) && preCheck.matches.length > 0) {
-      // Duplicate found before submission — block it!
+      // Duplicate found in Google Sheets before submission — block immediately!
       const firstDup = preCheck.matches[0];
-      const installerName = firstDup.installedBy || firstDup.updatedByName || firstDup.updatedBy || '';
+      const installerName = firstDup.installedBy || firstDup.updatedByName || firstDup.Updated_By_Name || '';
       const dupErr = new Error(
-        `DUPLICATE ERROR: Serial "${firstDup.serialNumber}" is already registered in "${firstDup.schoolName}" (UDISE: ${firstDup.udise}) — Installed by: ${installerName || 'Unknown'}`
+        `DUPLICATE ERROR: Serial "${firstDup.serialNumber}" is already registered in "${firstDup.schoolName}" (UDISE: ${firstDup.udise}) — Installed by: ${installerName || 'Not recorded'}`
       );
       dupErr.duplicateDetails = {
         serial: firstDup.serialNumber,
@@ -667,100 +665,59 @@ export const submitICR = async (submissionPayload) => {
   }
 
   // STEP 2: POST to Google Apps Script
-  // NOTE: GAS POST always returns 302 redirect → HTML (known GAS behavior).
-  // The doPost() function DOES execute and save data. We verify via GET after.
-  let postReachedServer = false;
+  let res;
   try {
-    const res = await fetchWithTimeout(url, {
+    res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(normalizedPayload)
     }, 35000);
-    // Any response (even HTML redirect) means request reached server
-    postReachedServer = true;
+  } catch (netErr) {
+    if (netErr.name === 'AbortError') {
+      throw new Error('Connection timeout: Google Sheets took too long to respond. Please check your internet and try again.');
+    }
+    throw new Error('Network error: Could not connect to Google Sheets. Please check your internet connection.');
+  }
 
-    // If GAS managed to return parseable JSON (unlikely but possible), check it
-    const text = await res.text();
-    try {
-      const json = JSON.parse(text);
-      if (json && !json.success) {
-        if (json.duplicate_detected && json.details) {
-          const installerName = json.details.installedBy || json.details.updatedByName || '';
-          const dupErr = new Error(
-            `DUPLICATE ERROR: Serial "${json.details.serial}" is already registered in "${json.details.schoolName}" (${json.details.udise}) — Installed by: ${installerName || 'Unknown'}`
-          );
-          dupErr.duplicateDetails = json.details;
-          throw dupErr;
-        }
-        throw new Error(json.error || 'Google Sheets rejected the submission.');
+  // STEP 3: Handle GAS Response
+  const text = await res.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch (parseErr) {
+    // Non-JSON response (e.g. Google redirect error or 404)
+    // Verify with Google Sheets via GET to confirm if data was actually saved
+    await sleep(2000);
+    if (allSerials.length > 0) {
+      const verifyRes = await safeGet(
+        `${url}?action=checkSerial&serial=${encodeURIComponent(allSerials[0])}&_t=${Date.now()}`,
+        2,
+        1500
+      );
+      if (verifyRes && verifyRes.success && verifyRes.exists) {
+        json = { success: true };
       }
-    } catch (parseErr) {
-      if (parseErr.duplicateDetails) throw parseErr;
-      if (parseErr.message && parseErr.message.includes('rejected')) throw parseErr;
-      // HTML response — normal GAS behavior, continue to verify via GET
     }
-  } catch (err) {
-    if (err.duplicateDetails || (err.message && err.message.includes('DUPLICATE ERROR'))) {
-      throw err;
-    }
-    if (err.message && err.message.includes('rejected')) throw err;
-    if (err.name === 'AbortError') {
-      throw new Error('Connection timeout. Please check your internet and try again.');
-    }
-    // Network error — POST may not have reached server
-    if (!postReachedServer) {
-      throw new Error('Network error: Could not connect to Google Sheets. Please check your internet connection.');
+    // If not confirmed in Google Sheets, DO NOT FAKE SUCCESS!
+    if (!json || !json.success) {
+      throw new Error('Submission failed: Google Sheets did not save the data. Please check your internet connection and try again.');
     }
   }
 
-  // STEP 3: VERIFY — Confirm data was actually saved in Google Sheets
-  // GAS can take 3-8 sec (cold start + LockService). Wait 4 sec, then verify.
-  await sleep(4000);
-
-  let dataConfirmed = false;
-  if (allSerials.length > 0) {
-    // Try 3 times, 3 sec apart = max 10 more seconds
-    for (let vAttempt = 1; vAttempt <= 3; vAttempt++) {
-      try {
-        const vRes = await fetchWithTimeout(
-          `${url}?action=checkBatchSerials&serials=${encodeURIComponent(allSerials[0])}&_t=${Date.now()}`,
-          {}, 15000
-        );
-        const vText = await vRes.text();
-        try {
-          const vJson = JSON.parse(vText);
-          if (vJson.success && vJson.exists) {
-            dataConfirmed = true;
-            break; // Data found in Google Sheets!
-          } else if (vJson.success && !vJson.exists) {
-            // GAS returned valid JSON but serial NOT found — data may not have saved
-            if (vAttempt < 3) {
-              await sleep(3000); // Wait and retry
-              continue;
-            }
-            // After 3 attempts, data still not found — submission failed
-            throw new Error(
-              'Data did not save to Google Sheets. This may happen if the school was already completed or there was a server error. Please check Google Sheet and try again.'
-            );
-          }
-        } catch (pErr) {
-          if (pErr.message && pErr.message.includes('did not save')) throw pErr;
-          // HTML response from GAS — can't verify, assume success since POST reached server
-          dataConfirmed = true;
-          break;
-        }
-      } catch (netErr) {
-        if (netErr.message && netErr.message.includes('did not save')) throw netErr;
-        // Network error — can't verify, assume success since POST reached server
-        dataConfirmed = true;
-        break;
-      }
+  // If GAS returned JSON rejecting the submission
+  if (json && !json.success) {
+    if (json.duplicate_detected && json.details) {
+      const installerName = json.details.installedBy || json.details.updatedByName || '';
+      const dupErr = new Error(
+        `DUPLICATE ERROR: Serial "${json.details.serial}" is already registered in "${json.details.schoolName}" (${json.details.udise}) — Installed by: ${installerName || 'Not recorded'}`
+      );
+      dupErr.duplicateDetails = json.details;
+      throw dupErr;
     }
-  } else {
-    dataConfirmed = true;
+    throw new Error(json.error || 'Google Sheets rejected the submission.');
   }
 
-  // STEP 4: Update local caches (for instant UI updates while GAS syncs)
+  // STEP 4: SUCCESS CONFIRMED IN GOOGLE SHEETS! Now update local caches
   const newRowItems = normalizedDevices.map(d => ({
     Submission_ID: submissionId,
     UDISE_Code: udise,
@@ -781,11 +738,13 @@ export const submitICR = async (submissionPayload) => {
     Submission_Timestamp: nowTimestamp
   }));
 
-  const localInventory = JSON.parse(localStorage.getItem(STORAGE_INVENTORY) || '[]');
-  const updatedInventory = [...localInventory, ...newRowItems];
-  localStorage.setItem(STORAGE_INVENTORY, JSON.stringify(updatedInventory));
+  // Update inventory cache
+  try {
+    const localInventory = JSON.parse(localStorage.getItem(STORAGE_INVENTORY) || '[]');
+    localStorage.setItem(STORAGE_INVENTORY, JSON.stringify([...localInventory, ...newRowItems]));
+  } catch (e) {}
 
-  const localStatus = JSON.parse(localStorage.getItem(STORAGE_STATUS) || '{}');
+  // Update status cache
   const statusEntry = {
     status: 'Completed',
     installedBy: installed_by,
@@ -795,17 +754,14 @@ export const submitICR = async (submissionPayload) => {
     totalDevices: normalizedDevices.length,
     devicesJson: JSON.stringify(normalizedDevices)
   };
-  localStatus[String(udise)] = statusEntry;
-  localStorage.setItem(STORAGE_STATUS, JSON.stringify(localStatus));
 
   const cachedStatus = getCachedStatusMap();
   cachedStatus[String(udise)] = statusEntry;
   try {
     localStorage.setItem(STORAGE_STATUS_CACHE, JSON.stringify(cachedStatus));
+    // Clear any unverified local status
+    localStorage.removeItem(STORAGE_STATUS);
   } catch (e) {}
-
-  // Broadcast submission to all other open tabs in real-time
-  broadcastPortalSync('STATUS_MAP_UPDATED', { statusMap: cachedStatus, udise: String(udise) });
 
   // Update in-memory and persistent serial registry with newly submitted serials
   try {
@@ -829,6 +785,9 @@ export const submitICR = async (submissionPayload) => {
     localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(reg));
   } catch (e) {}
 
+  // Broadcast submission to other tabs only after everything is finished
+  broadcastPortalSync('STATUS_MAP_UPDATED', { statusMap: cachedStatus, udise: String(udise) });
+
   return {
     success: true,
     message: `Successfully digitized ${newRowItems.length} devices for ${school_name} into Google Sheets!`,
@@ -850,22 +809,25 @@ export const getAllInventoryRows = async () => {
   }
 
   try {
-    const res = await fetch(`${url}?action=getInventory`);
-    const json = await res.json();
+    const res = await fetch(`${url}?action=getInventory&_t=${Date.now()}`);
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); } catch { return localInventory; }
     if (json.success && Array.isArray(json.data)) {
       const remoteRows = json.data;
       const formattedRemote = remoteRows.map(r => ({
         ...r,
-        Installed_By: r.Installed_By || r.Updated_By_Name,
+        Installed_By: r.Installed_By || r.Updated_By_Name || '',
         Installation_Date: formatDateDDMMMYYYY(r.Installation_Date)
       }));
 
-      // If Google Sheet is empty or remote inventory was fetched, sync localInventory
+      // Google Sheet is the single source of truth!
       if (remoteRows.length === 0) {
         localStorage.removeItem(STORAGE_INVENTORY);
         return [];
       }
 
+      localStorage.setItem(STORAGE_INVENTORY, JSON.stringify(formattedRemote));
       return formattedRemote;
     }
   } catch (err) {
