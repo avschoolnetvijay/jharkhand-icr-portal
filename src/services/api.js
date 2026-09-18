@@ -1,18 +1,13 @@
-import * as XLSX from 'xlsx';
+﻿import * as XLSX from 'xlsx';
 import defaultSchools from '../data/schools_master.json';
+import { supabase, SUPABASE_URL } from './supabaseClient';
 
 // Storage keys
-const STORAGE_API_URL = 'icr_google_script_url';
 const STORAGE_INVENTORY = 'icr_local_inventory';
 const STORAGE_STATUS = 'icr_local_status';
 const STORAGE_STATUS_CACHE = 'icr_cached_status_map';
 const STORAGE_MASTER_SCHOOLS = 'icr_cached_master_schools';
 const STORAGE_SERIAL_REGISTRY = 'icr_registered_serials_registry';
-
-// Permanent default Google Apps Script Web App URL for Jharkhand ICT & Smart Class Project
-const PERMANENT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxsfUCtKWIanqeBdfdcQpkGAxo03F6KjoNp_eDfmWld1UgxjpDqUdd1mxLv9afIu9VP/exec';
-
-const DEFAULT_API_URL = import.meta.env?.VITE_GOOGLE_SCRIPT_URL || PERMANENT_SCRIPT_URL;
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -48,16 +43,10 @@ export const formatDateDDMMMYYYY = (input) => {
 };
 
 export const getApiUrl = () => {
-  return localStorage.getItem(STORAGE_API_URL) || DEFAULT_API_URL;
+  return SUPABASE_URL;
 };
 
-export const setApiUrl = (url) => {
-  if (url) {
-    localStorage.setItem(STORAGE_API_URL, url.trim());
-  } else {
-    localStorage.removeItem(STORAGE_API_URL);
-  }
-};
+export const setApiUrl = () => {};
 
 /**
  * Instant retrieve cached master schools
@@ -72,7 +61,7 @@ export const getCachedMasterSchools = () => {
 };
 
 /**
- * Instant retrieve cached status map
+ * Instant retrieve cached status map (from Supabase cache)
  */
 export const getCachedStatusMap = () => {
   try {
@@ -97,28 +86,17 @@ export const broadcastPortalSync = (type, data = {}) => {
 };
 
 /**
- * Fetch Master School List directly from Google Sheet (Master_Schools tab)
+ * Fetch Master School List directly from Supabase (or fallback to schools_master.json)
  */
 export const fetchMasterSchools = async () => {
-  const url = getApiUrl();
   const cached = getCachedMasterSchools();
-
-  if (!url) {
-    return cached;
-  }
-
   try {
-    const res = await fetch(`${url}?action=getMasterSchools&_t=${Date.now()}`);
-    const text = await res.text();
-    let json;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      return cached;
-    }
+    const { data, error } = await supabase
+      .from('master_schools')
+      .select('*');
 
-    if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-      const normalized = json.data.map(s => ({
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const normalized = data.map(s => ({
         ...s,
         district: s.district === 'PAKAUR' ? 'PAKUR' : (s.district || '').trim().toUpperCase()
       }));
@@ -126,95 +104,97 @@ export const fetchMasterSchools = async () => {
       return normalized;
     }
   } catch (err) {
-    console.warn('Could not fetch Master_Schools from Google Sheets. Using cached/local list:', err);
+    console.warn('Could not fetch Master_Schools from Supabase:', err);
   }
 
   return cached;
 };
 
 /**
- * One-click helper: Seed / push the 679 master schools directly into Google Sheet
+ * Seed 679 master schools directly into Supabase master_schools table
  */
 export const seedMasterSchoolsToGoogleSheet = async () => {
-  const url = getApiUrl();
-  if (!url) throw new Error('Please configure Google Apps Script Web App URL first.');
+  return seedMasterSchoolsToSupabase();
+};
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({
-      action: 'seedMasterSchools',
-      schools: defaultSchools
-    })
-  });
+export const seedMasterSchoolsToSupabase = async () => {
+  try {
+    const rows = defaultSchools.map(s => ({
+      udise: String(s.udise),
+      snil: s.snil || '',
+      school_name: s.school_name || '',
+      district: s.district || '',
+      block: s.block || '',
+      raw_type: s.raw_type || '',
+      including_smart: s.including_smart || 'No',
+      category: s.category || '',
+      device_count: s.device_count || 4
+    }));
 
-  const json = await res.json();
-  if (!json.success) throw new Error(json.error || 'Failed to seed master schools');
-  
-  localStorage.setItem(STORAGE_MASTER_SCHOOLS, JSON.stringify(defaultSchools));
-  return json;
+    const { error } = await supabase
+      .from('master_schools')
+      .upsert(rows, { onConflict: 'udise' });
+
+    if (error) throw new Error(error.message);
+
+    localStorage.setItem(STORAGE_MASTER_SCHOOLS, JSON.stringify(defaultSchools));
+    return { success: true, count: rows.length };
+  } catch (err) {
+    console.error('Failed to seed master schools to Supabase:', err);
+    throw err;
+  }
 };
 
 /**
- * Fetch all school completion statuses with instant cache persistence and cross-tab sync
+ * Fetch all school completion statuses directly from Supabase (Supabase is single source of truth)
  */
 export const fetchSchoolStatusMap = async () => {
-  const url = getApiUrl();
   const cachedMap = getCachedStatusMap();
 
-  if (!url) {
-    return cachedMap;
-  }
-
   try {
-    const res = await fetch(`${url}?action=getAllStatus&_t=${Date.now()}`);
-    const text = await res.text();
-    let json;
-    try {
-      json = JSON.parse(text);
-    } catch (parseErr) {
-      console.warn('Google Apps Script returned non-JSON response:', text.slice(0, 200));
+    const { data, error } = await supabase
+      .from('school_status')
+      .select('*');
+
+    if (error) {
+      console.warn('Supabase fetchSchoolStatusMap error:', error.message);
       return cachedMap;
     }
 
-    if (json.success && Array.isArray(json.data)) {
+    if (Array.isArray(data)) {
       const remoteMap = {};
-      json.data.forEach(item => {
-        const udise = String(item.UDISE_Code || item.UDISE_CODE || item.udise || '').trim();
+      data.forEach(item => {
+        const udise = String(item.udise || '').trim();
         if (udise) {
           remoteMap[udise] = {
-            status: item.Status || 'Completed',
-            installedBy: item.Installed_By || item.Updated_By_Name || '',
-            mobile: String(item.Updated_By_Mobile || '').trim(),
-            date: formatDateDDMMMYYYY(item.Installation_Date || ''),
-            timestamp: item.Last_Updated_Timestamp || '',
-            totalDevices: Number(item.Total_Devices) || 0,
-            devicesJson: item.Device_Serials_JSON || '[]'
+            status: item.status || 'Completed',
+            installedBy: item.installed_by || '',
+            mobile: String(item.mobile || '').trim(),
+            date: formatDateDDMMMYYYY(item.installation_date || ''),
+            timestamp: item.submission_timestamp || '',
+            totalDevices: Number(item.total_devices) || 0,
+            devicesJson: typeof item.devices_json === 'string' ? item.devices_json : JSON.stringify(item.devices_json || [])
           };
         }
       });
 
-      // Google Sheet is the single source of truth!
-      // If rows were deleted in Google Sheets (or sheet is cleared), update cache to exactly match remoteMap.
+      // Supabase is the single source of truth!
       try {
         localStorage.setItem(STORAGE_STATUS_CACHE, JSON.stringify(remoteMap));
-        // Always remove unverified local status so ghost entries can never survive
         localStorage.removeItem(STORAGE_STATUS);
+
         if (Object.keys(remoteMap).length === 0) {
-          // If sheet has 0 entries, also clear local inventory & serial registry
           localStorage.removeItem(STORAGE_INVENTORY);
           localStorage.removeItem(STORAGE_SERIAL_REGISTRY);
           inMemorySerialMap = {};
         }
-      } catch (e) {
-        console.warn('Could not update status cache:', e);
-      }
+      } catch (e) {}
 
       broadcastPortalSync('STATUS_MAP_UPDATED', { statusMap: remoteMap });
       return remoteMap;
     }
   } catch (err) {
-    console.warn('Could not connect to Google Apps Script. Falling back to cached status:', err);
+    console.warn('Could not connect to Supabase. Falling back to cached status:', err);
   }
 
   return cachedMap;
@@ -224,75 +204,14 @@ let inMemorySerialMap = null;
 
 /**
  * Synchronous in-memory lookup map of all registered serials.
- * Built from persistent registry cache, local inventory rows, and completed status entries.
- * Runs in 0ms!
  */
 export const getRegisteredSerialsMap = () => {
   if (inMemorySerialMap) return inMemorySerialMap;
 
   const map = {};
-
-  // 1. From persistent registry cache
   try {
     const cached = JSON.parse(localStorage.getItem(STORAGE_SERIAL_REGISTRY) || '{}');
     Object.assign(map, cached);
-  } catch (e) {}
-
-  // 2. Merge local inventory
-  try {
-    const localInv = JSON.parse(localStorage.getItem(STORAGE_INVENTORY) || '[]');
-    localInv.forEach(item => {
-      const sn = (item.Serial_Number || '').trim().toUpperCase();
-      if (sn) {
-        const matchedUdise = String(item.UDISE_Code || '');
-        const matchedSchool = defaultSchools.find(s => String(s.udise) === matchedUdise);
-        map[sn] = {
-          serialNumber: sn,
-          udise: matchedUdise || item.UDISE_Code,
-          schoolName: item.School_Name || matchedSchool?.school_name || 'School',
-          district: item.District || matchedSchool?.district || '-',
-          block: item.Block_Name || matchedSchool?.block || '-',
-          itemName: item.Item_Name || 'Hardware Asset',
-          installedBy: item.Installed_By || item.Updated_By_Name || '-',
-          mobile: item.Updated_By_Mobile || '-',
-          date: formatDateDDMMMYYYY(item.Installation_Date),
-          timestamp: item.Submission_Timestamp || ''
-        };
-      }
-    });
-  } catch (e) {}
-
-  // 3. Merge status map (which contains devicesJson for completed schools)
-  try {
-    const statusCache = getCachedStatusMap();
-    Object.keys(statusCache).forEach(udise => {
-      const entry = statusCache[udise];
-      if (entry && entry.devicesJson) {
-        try {
-          const devs = typeof entry.devicesJson === 'string' ? JSON.parse(entry.devicesJson) : entry.devicesJson;
-          if (Array.isArray(devs)) {
-            const matchedSchool = defaultSchools.find(s => String(s.udise) === String(udise));
-            devs.forEach(d => {
-              const sn = String(d.serial || d.serial_number || '').trim().toUpperCase();
-              if (sn) {
-                map[sn] = {
-                  serialNumber: sn,
-                  udise: String(udise),
-                  schoolName: entry.schoolName || matchedSchool?.school_name || 'School',
-                  district: entry.district || matchedSchool?.district || '-',
-                  block: entry.block || matchedSchool?.block || '-',
-                  itemName: d.name || d.item_name || 'Hardware Asset',
-                  installedBy: entry.installedBy || '-',
-                  mobile: entry.mobile || '-',
-                  date: formatDateDDMMMYYYY(entry.date),
-                  timestamp: entry.timestamp || ''
-                };
-              }
-            });
-          }
-        } catch (err) {}
-      }
-    });
   } catch (e) {}
 
   inMemorySerialMap = map;
@@ -312,36 +231,29 @@ export const clearLocalSerialCache = () => {
 
 /**
  * Background / on-demand synchronization of the registered serials registry.
- * Completely rebuilds registry from live Google Sheets inventory.
  */
 export const syncRegisteredSerials = async (forceRemote = false) => {
-  const url = getApiUrl();
-  if (!url) return getRegisteredSerialsMap();
-
   try {
-    const res = await fetch(`${url}?action=getInventory&_t=${Date.now()}`);
-    const text = await res.text();
-    let json;
-    try { json = JSON.parse(text); } catch { return getRegisteredSerialsMap(); }
+    const { data, error } = await supabase
+      .from('device_inventory')
+      .select('*');
 
-    if (json.success && Array.isArray(json.data)) {
+    if (!error && Array.isArray(data)) {
       const freshMap = {};
-      json.data.forEach(r => {
-        const sn = String(r.Serial_Number || '').trim().toUpperCase();
+      data.forEach(r => {
+        const sn = String(r.serial_number || '').trim().toUpperCase();
         if (sn) {
-          const matchedUdise = String(r.UDISE_Code || '');
-          const matchedSchool = defaultSchools.find(s => String(s.udise) === matchedUdise);
           freshMap[sn] = {
             serialNumber: sn,
-            udise: matchedUdise || r.UDISE_Code,
-            schoolName: r.School_Name || matchedSchool?.school_name || 'School',
-            district: r.District || matchedSchool?.district || '-',
-            block: r.Block_Name || matchedSchool?.block || '-',
-            itemName: r.Item_Name || 'Hardware Asset',
-            installedBy: r.Installed_By || r.Updated_By_Name || '-',
-            mobile: r.Updated_By_Mobile || '-',
-            date: formatDateDDMMMYYYY(r.Installation_Date),
-            timestamp: r.Submission_Timestamp || ''
+            udise: String(r.udise || ''),
+            schoolName: r.school_name || 'School',
+            district: r.district || '-',
+            block: r.block || '-',
+            itemName: r.item_name || 'Hardware Asset',
+            installedBy: r.installed_by || 'Not recorded',
+            mobile: r.mobile || '-',
+            date: formatDateDDMMMYYYY(r.installation_date),
+            timestamp: r.submission_timestamp || ''
           };
         }
       });
@@ -349,8 +261,6 @@ export const syncRegisteredSerials = async (forceRemote = false) => {
       inMemorySerialMap = freshMap;
       try {
         localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(freshMap));
-        // Clean old local inventory to prevent resurrecting deleted serials
-        localStorage.removeItem(STORAGE_INVENTORY);
       } catch (e) {}
 
       return freshMap;
@@ -363,55 +273,47 @@ export const syncRegisteredSerials = async (forceRemote = false) => {
 };
 
 /**
- * Real-time Single Serial Live Check against Google Sheets.
- * If serial was changed/deleted in Google Sheet, this purges local cache.
+ * Real-time Single Serial Live Check against Supabase
  */
 export const checkSerialLive = async (serialNumber) => {
-  const url = getApiUrl();
   const sn = (serialNumber || '').trim().toUpperCase();
-  if (!url || !sn) return { exists: false };
+  if (!sn) return { exists: false };
 
   try {
-    const res = await fetch(`${url}?action=checkSerial&serial=${encodeURIComponent(sn)}&_t=${Date.now()}`);
-    const text = await res.text();
-    let json;
-    try { json = JSON.parse(text); } catch { return { exists: false }; }
+    const { data, error } = await supabase
+      .from('device_inventory')
+      .select('*')
+      .ilike('serial_number', sn)
+      .maybeSingle();
 
-    if (json.success) {
-      if (json.exists && json.match) {
-        const matchedUdise = String(json.match.udise || json.match.UDISE_Code || '');
-        const matchedSchool = defaultSchools.find(s => String(s.udise) === matchedUdise);
-        const matchData = {
-          serialNumber: sn,
-          udise: matchedUdise || json.match.udise,
-          schoolName: json.match.schoolName || matchedSchool?.school_name || 'School',
-          district: json.match.district || matchedSchool?.district || '-',
-          block: json.match.block || matchedSchool?.block || '-',
-          itemName: json.match.itemName || 'Hardware Asset',
-          installedBy: json.match.installedBy || json.match.updatedByName || json.match.updatedBy || '-',
-          mobile: json.match.mobile || '-',
-          date: formatDateDDMMMYYYY(json.match.installDate || json.match.date),
-          timestamp: json.match.timestamp || ''
-        };
+    if (!error && data) {
+      const matchData = {
+        serialNumber: sn,
+        udise: String(data.udise || ''),
+        schoolName: data.school_name || 'School',
+        district: data.district || '-',
+        block: data.block || '-',
+        itemName: data.item_name || 'Hardware Asset',
+        installedBy: data.installed_by || 'Not recorded',
+        mobile: data.mobile || '-',
+        date: formatDateDDMMMYYYY(data.installation_date),
+        timestamp: data.submission_timestamp || ''
+      };
 
-        // Update local cache with latest match
-        const reg = getRegisteredSerialsMap();
-        reg[sn] = matchData;
-        try { localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(reg)); } catch (e) {}
+      const reg = getRegisteredSerialsMap();
+      reg[sn] = matchData;
+      try { localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(reg)); } catch (e) {}
 
-        return { exists: true, match: matchData };
-      } else {
-        // DOES NOT EXIST IN GOOGLE SHEETS!
-        // Remove from local memory and localStorage so user is not blocked!
-        if (inMemorySerialMap) delete inMemorySerialMap[sn];
-        try {
-          const reg = JSON.parse(localStorage.getItem(STORAGE_SERIAL_REGISTRY) || '{}');
-          delete reg[sn];
-          localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(reg));
-        } catch (e) {}
+      return { exists: true, match: matchData };
+    } else {
+      if (inMemorySerialMap) delete inMemorySerialMap[sn];
+      try {
+        const reg = JSON.parse(localStorage.getItem(STORAGE_SERIAL_REGISTRY) || '{}');
+        delete reg[sn];
+        localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(reg));
+      } catch (e) {}
 
-        return { exists: false };
-      }
+      return { exists: false };
     }
   } catch (err) {
     console.warn('Live serial check error:', err);
@@ -421,12 +323,10 @@ export const checkSerialLive = async (serialNumber) => {
 };
 
 /**
- * Instant local lookup: Check if a serial number is already registered across any school.
- * Operates synchronously in 0ms so typing & blur is 100% fluid with zero lag.
+ * Instant local lookup
  */
 export const checkSerialDuplicate = (serialNumber, currentUdise) => {
   const cleanSerial = (serialNumber || '').trim().toUpperCase();
-  // Don't trigger on incomplete input (less than 3 characters, e.g. "J")
   if (!cleanSerial || cleanSerial.length < 3) {
     return { exists: false };
   }
@@ -446,9 +346,6 @@ export const checkSerialDuplicate = (serialNumber, currentUdise) => {
 
 /**
  * Comprehensive Pre-Submission Verification
- * Ensures ZERO duplicate serial numbers can ever be submitted to Google Sheets.
- * If a local duplicate is suspected, it double-checks live with Google Sheets.
- * If user edited/deleted it in Google Sheet, it clears local cache and permits submission!
  */
 export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, selectedSchool) => {
   // 1. Intra-form duplicate check (mutually exclusive within current form)
@@ -490,54 +387,51 @@ export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, sel
     };
   }
 
-  // 2. Database duplicate check against registered serials cache
-  const registry = getRegisteredSerialsMap();
-  const suspectedDuplicates = [];
+  // 2. Fast batch check against Supabase database
+  const serialList = deviceList
+    .map(d => String(serialValues[d.id] || '').trim().toUpperCase())
+    .filter(s => s && s.length >= 3);
 
-  for (const d of deviceList) {
-    const sn = String(serialValues[d.id] || '').trim().toUpperCase();
-    if (!sn || sn.length < 3) continue;
+  if (serialList.length > 0) {
+    try {
+      const { data: duplicates, error } = await supabase
+        .from('device_inventory')
+        .select('*')
+        .in('serial_number', serialList);
 
-    const match = registry[sn];
-    if (match) {
-      suspectedDuplicates.push({
-        id: d.id,
-        deviceName: d.itemName || d.item_name || d.label || 'Device',
-        serialNumber: sn,
-        match: match
-      });
-    }
-  }
+      if (!error && Array.isArray(duplicates) && duplicates.length > 0) {
+        const verifiedDuplicates = duplicates.map(dup => {
+          const matchingDevice = deviceList.find(
+            d => String(serialValues[d.id] || '').trim().toUpperCase() === dup.serial_number.toUpperCase()
+          );
+          return {
+            id: matchingDevice?.id || dup.serial_number,
+            deviceName: matchingDevice?.itemName || matchingDevice?.label || dup.item_name,
+            serialNumber: dup.serial_number,
+            match: {
+              serialNumber: dup.serial_number,
+              udise: String(dup.udise),
+              schoolName: dup.school_name,
+              district: dup.district,
+              block: dup.block,
+              itemName: dup.item_name,
+              installedBy: dup.installed_by || 'Not recorded',
+              mobile: dup.mobile || '-',
+              date: formatDateDDMMMYYYY(dup.installation_date),
+              timestamp: dup.submission_timestamp || ''
+            }
+          };
+        });
 
-  // Live verification with Google Sheets for suspected duplicates:
-  // If user changed/deleted the serial in Google Sheet, this live check detects it and DOES NOT BLOCK!
-  if (suspectedDuplicates.length > 0) {
-    const verifiedDuplicates = [];
-    for (const dup of suspectedDuplicates) {
-      try {
-        const live = await checkSerialLive(dup.serialNumber);
-        if (live && live.exists) {
-          verifiedDuplicates.push({
-            ...dup,
-            match: live.match || dup.match
-          });
-        } else {
-          // Serial was removed/changed in Google Sheets! Remove from local cache
-          if (inMemorySerialMap) delete inMemorySerialMap[dup.serialNumber];
-        }
-      } catch (err) {
-        // Fallback to cached match if network fails
-        verifiedDuplicates.push(dup);
+        return {
+          valid: false,
+          type: 'already_registered',
+          duplicates: verifiedDuplicates,
+          message: `Duplicate Serial Detected! ${verifiedDuplicates.length} serial number(s) are already registered in Supabase.`
+        };
       }
-    }
-
-    if (verifiedDuplicates.length > 0) {
-      return {
-        valid: false,
-        type: 'already_registered',
-        duplicates: verifiedDuplicates,
-        message: `Duplicate Serial Detected! ${verifiedDuplicates.length} serial number(s) are already registered in Google Sheets.`
-      };
+    } catch (err) {
+      console.warn('Batch duplicate verification error:', err);
     }
   }
 
@@ -545,22 +439,9 @@ export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, sel
 };
 
 /**
- * Submit School ICR Data
- * Two-step approach: POST to GAS + GET to verify (because GAS POST always redirects to HTML).
- * Step 1: Pre-check all serials via checkBatchSerials GET before submitting.
- * Step 2: POST data to GAS (doPost saves to sheets even though response is HTML).
- * Step 3: Verify via GET that data was actually saved.
- * Step 4: Update local caches for instant UI feedback.
+ * Submit School ICR Data to Supabase (Ultra-fast, 100% reliable)
  */
 export const submitICR = async (submissionPayload) => {
-  const url = getApiUrl();
-  
-  if (!url) {
-    throw new Error(
-      'Google Sheets is NOT connected! Please enter your Google Apps Script Web App URL first.'
-    );
-  }
-
   const {
     udise,
     snil,
@@ -574,12 +455,9 @@ export const submitICR = async (submissionPayload) => {
     devices
   } = submissionPayload;
 
-  // Enforce dd-mmm-yyyy format (e.g. 13-Sep-2026)
   const formattedInstallDate = formatDateDDMMMYYYY(installation_date);
-
   const now = new Date();
   const nowTimestamp = `${formatDateDDMMMYYYY(now)} ${now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}`;
-
   const submissionId = 'SUB-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
 
   const normalizedDevices = (devices || []).map(d => ({
@@ -592,159 +470,106 @@ export const submitICR = async (submissionPayload) => {
     serial_number: String(d.serial_number || d.serial || '').trim().toUpperCase()
   }));
 
-  const normalizedPayload = {
-    ...submissionPayload,
-    installed_by: installed_by,
-    technician_name: installed_by,
-    installation_date: formattedInstallDate,
-    devices: normalizedDevices
-  };
+  // 1. Check if school is already completed in Supabase
+  const { data: existingSchool, error: schoolCheckErr } = await supabase
+    .from('school_status')
+    .select('udise, school_name, installed_by')
+    .eq('udise', String(udise))
+    .maybeSingle();
 
-  // Helper: sleep for ms milliseconds
-  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  if (existingSchool) {
+    throw new Error(`School "${existingSchool.school_name}" (UDISE: ${udise}) has already been completed by ${existingSchool.installed_by || 'another user'}.`);
+  }
 
-  // Helper: fetch with timeout
-  const fetchWithTimeout = async (fetchUrl, options, timeoutMs = 30000) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(fetchUrl, { ...options, signal: controller.signal });
-      return res;
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
-  // Helper: safe GET with JSON parse and retry
-  const safeGet = async (getUrl, retries = 3, delayMs = 1500) => {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        const res = await fetchWithTimeout(getUrl, {}, 20000);
-        const text = await res.text();
-        try {
-          return JSON.parse(text);
-        } catch {
-          console.warn(`GET attempt ${attempt}: non-JSON response`, text.slice(0, 100));
-        }
-      } catch (err) {
-        console.warn(`GET attempt ${attempt} error:`, err.message);
-      }
-      if (attempt < retries) await sleep(delayMs);
-    }
-    return null;
-  };
-
-  // STEP 1: PRE-SUBMIT — Live batch check via GET (catches duplicates before POST)
-  const allSerials = normalizedDevices
-    .map(d => d.serial_number)
-    .filter(Boolean);
-
+  // 2. Real-time Live Duplicate Check across all serials in this form
+  const allSerials = normalizedDevices.map(d => d.serial_number).filter(Boolean);
   if (allSerials.length > 0) {
-    const batchUrl = `${url}?action=checkBatchSerials&serials=${encodeURIComponent(allSerials.join(','))}&_t=${Date.now()}`;
-    const preCheck = await safeGet(batchUrl, 2, 1000);
+    const { data: duplicates, error: dupErr } = await supabase
+      .from('device_inventory')
+      .select('*')
+      .in('serial_number', allSerials);
 
-    if (preCheck && preCheck.success && preCheck.exists && Array.isArray(preCheck.matches) && preCheck.matches.length > 0) {
-      // Duplicate found in Google Sheets before submission — block immediately!
-      const firstDup = preCheck.matches[0];
-      const installerName = firstDup.installedBy || firstDup.updatedByName || firstDup.Updated_By_Name || '';
-      const dupErr = new Error(
-        `DUPLICATE ERROR: Serial "${firstDup.serialNumber}" is already registered in "${firstDup.schoolName}" (UDISE: ${firstDup.udise}) — Installed by: ${installerName || 'Not recorded'}`
+    if (duplicates && duplicates.length > 0) {
+      const firstDup = duplicates[0];
+      const installerName = firstDup.installed_by || 'Not recorded';
+      const err = new Error(
+        `DUPLICATE ERROR: Serial "${firstDup.serial_number}" is already registered in "${firstDup.school_name}" (UDISE: ${firstDup.udise}) — Installed by: ${installerName}`
       );
-      dupErr.duplicateDetails = {
-        serial: firstDup.serialNumber,
-        schoolName: firstDup.schoolName,
-        udise: firstDup.udise,
-        itemName: firstDup.itemName,
+      err.duplicateDetails = {
+        serial: firstDup.serial_number,
+        schoolName: firstDup.school_name,
+        udise: String(firstDup.udise),
+        itemName: firstDup.item_name,
         installedBy: installerName,
-        mobile: firstDup.mobile,
-        date: firstDup.installDate,
-        allMatches: preCheck.matches
+        mobile: firstDup.mobile || '-',
+        date: formatDateDDMMMYYYY(firstDup.installation_date),
+        allMatches: duplicates
       };
-      throw dupErr;
+      throw err;
     }
   }
 
-  // STEP 2: POST to Google Apps Script
-  let res;
-  try {
-    res = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(normalizedPayload)
-    }, 35000);
-  } catch (netErr) {
-    if (netErr.name === 'AbortError') {
-      throw new Error('Connection timeout: Google Sheets took too long to respond. Please check your internet and try again.');
+  // 3. Insert into school_status table
+  const { error: statusInsertErr } = await supabase
+    .from('school_status')
+    .insert({
+      udise: String(udise),
+      snil: snil || '',
+      school_name: school_name,
+      district: district,
+      block: block,
+      category: category,
+      status: 'Completed',
+      total_devices: normalizedDevices.length,
+      installed_by: installed_by,
+      mobile: technician_mobile,
+      installation_date: formattedInstallDate,
+      submission_timestamp: nowTimestamp,
+      devices_json: normalizedDevices
+    });
+
+  if (statusInsertErr) {
+    if (statusInsertErr.code === '23505') {
+      throw new Error(`School "${school_name}" (UDISE: ${udise}) was already submitted!`);
     }
-    throw new Error('Network error: Could not connect to Google Sheets. Please check your internet connection.');
+    throw new Error(`Failed to save school status: ${statusInsertErr.message}`);
   }
 
-  // STEP 3: Handle GAS Response
-  const text = await res.text();
-  let json = null;
-  try {
-    json = JSON.parse(text);
-  } catch (parseErr) {
-    // Non-JSON response (e.g. Google redirect error or 404)
-    // Verify with Google Sheets via GET to confirm if data was actually saved
-    await sleep(2000);
-    if (allSerials.length > 0) {
-      const verifyRes = await safeGet(
-        `${url}?action=checkSerial&serial=${encodeURIComponent(allSerials[0])}&_t=${Date.now()}`,
-        2,
-        1500
-      );
-      if (verifyRes && verifyRes.success && verifyRes.exists) {
-        json = { success: true };
-      }
-    }
-    // If not confirmed in Google Sheets, DO NOT FAKE SUCCESS!
-    if (!json || !json.success) {
-      throw new Error('Submission failed: Google Sheets did not save the data. Please check your internet connection and try again.');
-    }
-  }
-
-  // If GAS returned JSON rejecting the submission
-  if (json && !json.success) {
-    if (json.duplicate_detected && json.details) {
-      const installerName = json.details.installedBy || json.details.updatedByName || '';
-      const dupErr = new Error(
-        `DUPLICATE ERROR: Serial "${json.details.serial}" is already registered in "${json.details.schoolName}" (${json.details.udise}) — Installed by: ${installerName || 'Not recorded'}`
-      );
-      dupErr.duplicateDetails = json.details;
-      throw dupErr;
-    }
-    throw new Error(json.error || 'Google Sheets rejected the submission.');
-  }
-
-  // STEP 4: SUCCESS CONFIRMED IN GOOGLE SHEETS! Now update local caches
-  const newRowItems = normalizedDevices.map(d => ({
-    Submission_ID: submissionId,
-    UDISE_Code: udise,
-    SNIL_Code: snil,
-    School_Name: school_name,
-    District: district,
-    Block_Name: block,
-    Lab_Category: category,
-    Item_Name: d.item_name,
-    Make_And_Model: d.make_model,
-    Serial_Number: d.serial_number,
-    Installed_Status: 'Yes',
-    Working_Status: 'Yes',
-    Installation_Date: formattedInstallDate,
-    Installed_By: installed_by,
-    Updated_By_Name: installed_by,
-    Updated_By_Mobile: technician_mobile,
-    Submission_Timestamp: nowTimestamp
+  // 4. Insert row-wise items into device_inventory table
+  const inventoryRows = normalizedDevices.map(d => ({
+    submission_id: submissionId,
+    udise: String(udise),
+    snil: snil || '',
+    school_name: school_name,
+    district: district,
+    block: block,
+    category: category,
+    item_name: d.item_name,
+    make_model: d.make_model,
+    serial_number: d.serial_number,
+    installed_status: 'Yes',
+    working_status: 'Yes',
+    installation_date: formattedInstallDate,
+    installed_by: installed_by,
+    mobile: technician_mobile,
+    submission_timestamp: nowTimestamp
   }));
 
-  // Update inventory cache
-  try {
-    const localInventory = JSON.parse(localStorage.getItem(STORAGE_INVENTORY) || '[]');
-    localStorage.setItem(STORAGE_INVENTORY, JSON.stringify([...localInventory, ...newRowItems]));
-  } catch (e) {}
+  const { error: invInsertErr } = await supabase
+    .from('device_inventory')
+    .insert(inventoryRows);
 
-  // Update status cache
+  if (invInsertErr) {
+    // Rollback school_status if device insertion fails
+    await supabase.from('school_status').delete().eq('udise', String(udise));
+
+    if (invInsertErr.code === '23505') {
+      throw new Error(`DUPLICATE ERROR: One of the hardware serial numbers was just registered by another user! Database unique constraint prevented duplicate.`);
+    }
+    throw new Error(`Failed to save device inventory: ${invInsertErr.message}`);
+  }
+
+  // 5. Success Confirmed! Update local caches
   const statusEntry = {
     status: 'Completed',
     installedBy: installed_by,
@@ -759,11 +584,10 @@ export const submitICR = async (submissionPayload) => {
   cachedStatus[String(udise)] = statusEntry;
   try {
     localStorage.setItem(STORAGE_STATUS_CACHE, JSON.stringify(cachedStatus));
-    // Clear any unverified local status
     localStorage.removeItem(STORAGE_STATUS);
   } catch (e) {}
 
-  // Update in-memory and persistent serial registry with newly submitted serials
+  // Update in-memory registry
   try {
     const reg = getRegisteredSerialsMap();
     normalizedDevices.forEach(d => {
@@ -785,53 +609,55 @@ export const submitICR = async (submissionPayload) => {
     localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(reg));
   } catch (e) {}
 
-  // Broadcast submission to other tabs only after everything is finished
   broadcastPortalSync('STATUS_MAP_UPDATED', { statusMap: cachedStatus, udise: String(udise) });
 
   return {
     success: true,
-    message: `Successfully digitized ${newRowItems.length} devices for ${school_name} into Google Sheets!`,
+    message: `Successfully digitized ${normalizedDevices.length} devices for ${school_name} into Supabase!`,
     submissionId: submissionId,
     timestamp: nowTimestamp,
-    totalDevices: devices.length
+    totalDevices: normalizedDevices.length
   };
 };
 
 /**
- * Get all inventory records (Row-wise)
+ * Get all inventory records from Supabase (Row-wise for Excel export)
  */
 export const getAllInventoryRows = async () => {
-  const url = getApiUrl();
   const localInventory = JSON.parse(localStorage.getItem(STORAGE_INVENTORY) || '[]');
 
-  if (!url) {
-    return localInventory;
-  }
-
   try {
-    const res = await fetch(`${url}?action=getInventory&_t=${Date.now()}`);
-    const text = await res.text();
-    let json;
-    try { json = JSON.parse(text); } catch { return localInventory; }
-    if (json.success && Array.isArray(json.data)) {
-      const remoteRows = json.data;
-      const formattedRemote = remoteRows.map(r => ({
-        ...r,
-        Installed_By: r.Installed_By || r.Updated_By_Name || '',
-        Installation_Date: formatDateDDMMMYYYY(r.Installation_Date)
+    const { data, error } = await supabase
+      .from('device_inventory')
+      .select('*')
+      .order('id', { ascending: true });
+
+    if (!error && Array.isArray(data)) {
+      const formatted = data.map(r => ({
+        Submission_ID: r.submission_id,
+        UDISE_Code: r.udise,
+        SNIL_Code: r.snil,
+        School_Name: r.school_name,
+        District: r.district,
+        Block_Name: r.block,
+        Lab_Category: r.category,
+        Item_Name: r.item_name,
+        Make_And_Model: r.make_model,
+        Serial_Number: r.serial_number,
+        Installed_Status: r.installed_status || 'Yes',
+        Working_Status: r.working_status || 'Yes',
+        Installation_Date: formatDateDDMMMYYYY(r.installation_date),
+        Installed_By: r.installed_by,
+        Updated_By_Name: r.installed_by,
+        Updated_By_Mobile: r.mobile,
+        Submission_Timestamp: r.submission_timestamp
       }));
 
-      // Google Sheet is the single source of truth!
-      if (remoteRows.length === 0) {
-        localStorage.removeItem(STORAGE_INVENTORY);
-        return [];
-      }
-
-      localStorage.setItem(STORAGE_INVENTORY, JSON.stringify(formattedRemote));
-      return formattedRemote;
+      localStorage.setItem(STORAGE_INVENTORY, JSON.stringify(formatted));
+      return formatted;
     }
   } catch (err) {
-    console.warn('Error fetching remote inventory:', err);
+    console.warn('Error fetching Supabase inventory:', err);
   }
 
   return localInventory;
@@ -850,10 +676,6 @@ export {
 
 import { exportFullProjectToExcel } from './excelStyles';
 
-/**
- * Backwards compatible export function using new styled Excel engine
- */
 export const exportInventoryToExcel = (inventoryRows, schoolsMaster, statusMap) => {
   return exportFullProjectToExcel(inventoryRows, schoolsMaster, statusMap);
 };
-
