@@ -432,7 +432,7 @@ export default function NewDataCollectionView({
 
     // 4. Fast Direct Submission to Google Sheets
     setIsSubmitting(true);
-    setSubmissionStatusText('Duplicate Checking & Verifying...');
+    setSubmissionStatusText('Live duplicate checking with Google Sheets...');
 
     try {
       const submissionPayload = {

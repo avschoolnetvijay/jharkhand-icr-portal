@@ -548,6 +548,11 @@ export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, sel
 
 /**
  * Submit School ICR Data
+ * Two-step approach: POST to GAS + GET to verify (because GAS POST always redirects to HTML).
+ * Step 1: Pre-check all serials via checkBatchSerials GET before submitting.
+ * Step 2: POST data to GAS (doPost saves to sheets even though response is HTML).
+ * Step 3: Verify via GET that data was actually saved.
+ * Step 4: Update local caches for instant UI feedback.
  */
 export const submitICR = async (submissionPayload) => {
   const url = getApiUrl();
@@ -597,49 +602,138 @@ export const submitICR = async (submissionPayload) => {
     devices: normalizedDevices
   };
 
-  // 1. Submit directly to Google Apps Script Web App API
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(normalizedPayload)
-    });
-    
-    const text = await res.text();
-    let json = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      // Google Apps Script executed and saved rows into Google Sheet, but returned HTML on redirect.
-      // This is a normal Google Apps Script behavior. We treat this as successful submission!
-      json = {
-        success: true,
-        message: `Successfully recorded device serials for ${school_name} into Google Sheets!`
-      };
-    }
+  // Helper: sleep for ms milliseconds
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-    if (json && !json.success) {
-      if (json.duplicate_detected && json.details) {
-        const dupErr = new Error(
-          `DUPLICATE ERROR: Serial number "${json.details.serial}" already registered in ${json.details.schoolName} (${json.details.udise}) by ${json.details.installedBy || json.details.updatedBy}!`
-        );
-        dupErr.duplicateDetails = json.details;
-        throw dupErr;
+  // Helper: fetch with timeout
+  const fetchWithTimeout = async (fetchUrl, options, timeoutMs = 30000) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(fetchUrl, { ...options, signal: controller.signal });
+      return res;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  // Helper: safe GET with JSON parse and retry
+  const safeGet = async (getUrl, retries = 3, delayMs = 1500) => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const res = await fetchWithTimeout(getUrl, {}, 20000);
+        const text = await res.text();
+        try {
+          return JSON.parse(text);
+        } catch {
+          console.warn(`GET attempt ${attempt}: non-JSON response`, text.slice(0, 100));
+        }
+      } catch (err) {
+        console.warn(`GET attempt ${attempt} error:`, err.message);
       }
-      throw new Error(json.error || 'Google Sheets rejected the submission.');
+      if (attempt < retries) await sleep(delayMs);
     }
-  } catch (err) {
-    if (err.duplicateDetails) {
-      throw err;
-    }
-    // Only throw network/fetch level fatal errors if request completely failed to reach the server
-    console.error('Google Sheet Submission Note:', err);
-    if (err.message && err.message.includes('DUPLICATE ERROR')) {
-      throw err;
+    return null;
+  };
+
+  // STEP 1: PRE-SUBMIT — Live batch check via GET (catches duplicates before POST)
+  const allSerials = normalizedDevices
+    .map(d => d.serial_number)
+    .filter(Boolean);
+
+  if (allSerials.length > 0) {
+    const batchUrl = `${url}?action=checkBatchSerials&serials=${encodeURIComponent(allSerials.join(','))}&_t=${Date.now()}`;
+    const preCheck = await safeGet(batchUrl, 2, 1000);
+
+    if (preCheck && preCheck.success && preCheck.exists && Array.isArray(preCheck.matches) && preCheck.matches.length > 0) {
+      // Duplicate found before submission — block it!
+      const firstDup = preCheck.matches[0];
+      const dupErr = new Error(
+        `DUPLICATE ERROR: Serial "${firstDup.serialNumber}" is already registered in "${firstDup.schoolName}" (UDISE: ${firstDup.udise}) — Installed by: ${firstDup.installedBy || '-'}`
+      );
+      dupErr.duplicateDetails = {
+        serial: firstDup.serialNumber,
+        schoolName: firstDup.schoolName,
+        udise: firstDup.udise,
+        itemName: firstDup.itemName,
+        installedBy: firstDup.installedBy,
+        mobile: firstDup.mobile,
+        date: firstDup.installDate,
+        allMatches: preCheck.matches
+      };
+      throw dupErr;
     }
   }
 
-  // Prepare Local Row-Wise Records for fast local cache
+  // STEP 2: POST to Google Apps Script
+  // NOTE: GAS POST always returns 302 redirect → HTML (known GAS behavior).
+  // The doPost() function DOES execute and save data. We verify via GET after.
+  let postReachedServer = false;
+  try {
+    const res = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(normalizedPayload)
+    }, 35000);
+    // Any response (even HTML redirect) means request reached server
+    postReachedServer = true;
+
+    // If GAS managed to return parseable JSON (unlikely but possible), check it
+    const text = await res.text();
+    try {
+      const json = JSON.parse(text);
+      if (json && !json.success) {
+        if (json.duplicate_detected && json.details) {
+          const dupErr = new Error(
+            `DUPLICATE ERROR: Serial "${json.details.serial}" is already registered in "${json.details.schoolName}" (${json.details.udise}) — Installed by: ${json.details.installedBy || '-'}`
+          );
+          dupErr.duplicateDetails = json.details;
+          throw dupErr;
+        }
+        throw new Error(json.error || 'Google Sheets rejected the submission.');
+      }
+      if (json && json.success) {
+        // Perfect — GAS returned clean JSON success (redirect didn't happen)
+        postReachedServer = true;
+      }
+    } catch (parseErr) {
+      if (parseErr.duplicateDetails) throw parseErr;
+      // HTML response — normal GAS behavior, continue to verify via GET
+    }
+  } catch (err) {
+    if (err.duplicateDetails || (err.message && err.message.includes('DUPLICATE ERROR'))) {
+      throw err;
+    }
+    if (err.name === 'AbortError') {
+      throw new Error('Connection timeout. Please check your internet and try again.');
+    }
+    // Network error — POST may not have reached server
+    if (!postReachedServer) {
+      throw new Error('Network error: Could not connect to Google Sheets. Please check your internet connection.');
+    }
+  }
+
+  // STEP 3: VERIFY via GET — Confirm data was actually saved in Google Sheets
+  // Wait briefly for GAS to finish writing (GAS has LockService, usually done in <2s)
+  await sleep(2500);
+
+  if (allSerials.length > 0) {
+    const verifyUrl = `${url}?action=checkBatchSerials&serials=${encodeURIComponent(allSerials.join(','))}&_t=${Date.now()}`;
+    const verified = await safeGet(verifyUrl, 3, 2000);
+
+    if (verified && verified.success) {
+      if (!verified.exists || !verified.matches || verified.matches.length === 0) {
+        // Data not found in Google Sheets — submission failed silently
+        throw new Error(
+          'Submission failed: Data did not reach Google Sheets. Please try again. If this persists, check your Google Apps Script URL in Settings.'
+        );
+      }
+      // Data confirmed in Google Sheets!
+    }
+    // If GET itself failed (network issue), we proceed cautiously with local cache only
+  }
+
+  // STEP 4: Update local caches (for instant UI updates while GAS syncs)
   const newRowItems = normalizedDevices.map(d => ({
     Submission_ID: submissionId,
     UDISE_Code: udise,
