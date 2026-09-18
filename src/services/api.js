@@ -685,26 +685,25 @@ export const submitICR = async (submissionPayload) => {
       const json = JSON.parse(text);
       if (json && !json.success) {
         if (json.duplicate_detected && json.details) {
+          const installerName = json.details.installedBy || json.details.updatedByName || '';
           const dupErr = new Error(
-            `DUPLICATE ERROR: Serial "${json.details.serial}" is already registered in "${json.details.schoolName}" (${json.details.udise}) — Installed by: ${json.details.installedBy || '-'}`
+            `DUPLICATE ERROR: Serial "${json.details.serial}" is already registered in "${json.details.schoolName}" (${json.details.udise}) — Installed by: ${installerName || 'Unknown'}`
           );
           dupErr.duplicateDetails = json.details;
           throw dupErr;
         }
         throw new Error(json.error || 'Google Sheets rejected the submission.');
       }
-      if (json && json.success) {
-        // Perfect — GAS returned clean JSON success (redirect didn't happen)
-        postReachedServer = true;
-      }
     } catch (parseErr) {
       if (parseErr.duplicateDetails) throw parseErr;
+      if (parseErr.message && parseErr.message.includes('rejected')) throw parseErr;
       // HTML response — normal GAS behavior, continue to verify via GET
     }
   } catch (err) {
     if (err.duplicateDetails || (err.message && err.message.includes('DUPLICATE ERROR'))) {
       throw err;
     }
+    if (err.message && err.message.includes('rejected')) throw err;
     if (err.name === 'AbortError') {
       throw new Error('Connection timeout. Please check your internet and try again.');
     }
@@ -714,6 +713,52 @@ export const submitICR = async (submissionPayload) => {
     }
   }
 
+  // STEP 3: VERIFY — Confirm data was actually saved in Google Sheets
+  // GAS can take 3-8 sec (cold start + LockService). Wait 4 sec, then verify.
+  await sleep(4000);
+
+  let dataConfirmed = false;
+  if (allSerials.length > 0) {
+    // Try 3 times, 3 sec apart = max 10 more seconds
+    for (let vAttempt = 1; vAttempt <= 3; vAttempt++) {
+      try {
+        const vRes = await fetchWithTimeout(
+          `${url}?action=checkBatchSerials&serials=${encodeURIComponent(allSerials[0])}&_t=${Date.now()}`,
+          {}, 15000
+        );
+        const vText = await vRes.text();
+        try {
+          const vJson = JSON.parse(vText);
+          if (vJson.success && vJson.exists) {
+            dataConfirmed = true;
+            break; // Data found in Google Sheets!
+          } else if (vJson.success && !vJson.exists) {
+            // GAS returned valid JSON but serial NOT found — data may not have saved
+            if (vAttempt < 3) {
+              await sleep(3000); // Wait and retry
+              continue;
+            }
+            // After 3 attempts, data still not found — submission failed
+            throw new Error(
+              'Data did not save to Google Sheets. This may happen if the school was already completed or there was a server error. Please check Google Sheet and try again.'
+            );
+          }
+        } catch (pErr) {
+          if (pErr.message && pErr.message.includes('did not save')) throw pErr;
+          // HTML response from GAS — can't verify, assume success since POST reached server
+          dataConfirmed = true;
+          break;
+        }
+      } catch (netErr) {
+        if (netErr.message && netErr.message.includes('did not save')) throw netErr;
+        // Network error — can't verify, assume success since POST reached server
+        dataConfirmed = true;
+        break;
+      }
+    }
+  } else {
+    dataConfirmed = true;
+  }
 
   // STEP 4: Update local caches (for instant UI updates while GAS syncs)
   const newRowItems = normalizedDevices.map(d => ({
