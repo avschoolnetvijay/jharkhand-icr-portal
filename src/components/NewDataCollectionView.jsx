@@ -918,7 +918,7 @@ export default function NewDataCollectionView({
                                     </div>
                                     <div>
                                       <span className="text-rose-600 font-semibold">Installed By:</span>{' '}
-                                      <strong className="text-slate-900">{duplicateInfo.installedBy || '-'}</strong>
+                                      <strong className="text-slate-900">{duplicateInfo.installedBy && duplicateInfo.installedBy !== '-' ? duplicateInfo.installedBy : <span className="text-rose-400 italic">Not recorded</span>}</strong>
                                     </div>
                                     <div>
                                       <span className="text-rose-600 font-semibold">Mobile No.:</span>{' '}
@@ -926,7 +926,7 @@ export default function NewDataCollectionView({
                                     </div>
                                     <div>
                                       <span className="text-rose-600 font-semibold">Date:</span>{' '}
-                                      <strong className="text-slate-900">{duplicateInfo.date || '-'}</strong>
+                                      <strong className="text-slate-900">{duplicateInfo.date ? formatDateDDMMMYYYY(duplicateInfo.date) : '-'}</strong>
                                     </div>
                                     {duplicateInfo.timestamp && (
                                       <div>

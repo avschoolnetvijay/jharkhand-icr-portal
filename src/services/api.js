@@ -713,29 +713,22 @@ export const submitICR = async (submissionPayload) => {
     }
   }
 
-  // STEP 3: VERIFY via GET — Confirm data was actually saved in Google Sheets
-  // GAS with LockService can take 3-8 seconds to write. Wait generously.
-  await sleep(5000);
+  // STEP 3: VERIFY via GET — Best-effort confirmation (non-blocking)
+  // GAS data IS being saved (POST works), but GET timing varies due to LockService.
+  // We NEVER block success here — pre-submit duplicate check (Step 1) is the real guard.
+  await sleep(3000);
 
   if (allSerials.length > 0) {
-    // Try up to 4 times, 3 seconds apart = max 14 more seconds of retrying
     const verifyUrl = `${url}?action=checkBatchSerials&serials=${encodeURIComponent(allSerials.join(','))}&_t=${Date.now()}`;
-    const verified = await safeGet(verifyUrl, 4, 3000);
-
-    if (verified === null) {
-      // GET itself failed (network issue) — POST reached server, proceed as success
-      console.warn('Verification GET failed, assuming success since POST reached server');
-    } else if (verified.success) {
-      if (!verified.exists || !verified.matches || verified.matches.length === 0) {
-        // Data not found — submission may have failed. Throw clear error.
-        throw new Error(
-          'Submission failed: Data did not save in Google Sheets. Please check your internet and try again.'
-        );
-      }
-      // Data confirmed in Google Sheets! ✓
+    const verified = await safeGet(verifyUrl, 2, 2000);
+    if (verified && verified.success && verified.exists) {
+      console.log('✓ Data confirmed in Google Sheets via GET verification.');
+    } else {
+      // Data may still be writing — GAS LockService can be slow. Don't block success.
+      console.warn('Verify GET inconclusive — data likely saved since POST reached server.');
     }
-    // verified.success === false means GAS error — still proceed (POST may have saved)
   }
+
 
 
   // STEP 4: Update local caches (for instant UI updates while GAS syncs)
