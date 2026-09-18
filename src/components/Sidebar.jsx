@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   FileEdit,
+  FileCheck2,
   Home,
   BarChart3,
   Settings,
@@ -63,7 +64,25 @@ export default function Sidebar({
             <span>Digitization Link</span>
           </button>
 
-          {/* 2. Dashboard */}
+          {/* 2. ICR Prepare (Word .docx Generation) */}
+          <button
+            onClick={() => handleNavClick('icr_prepare')}
+            className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+              currentView === 'icr_prepare'
+                ? 'bg-[#1d68e2] text-white shadow-md shadow-blue-900/40'
+                : 'text-slate-200 hover:bg-[#13253b] hover:text-white'
+            }`}
+          >
+            <FileCheck2 className="h-4 w-4 shrink-0 text-emerald-400" />
+            <div className="flex items-center justify-between flex-1">
+              <span>ICR Prepare</span>
+              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono font-normal">
+                .docx
+              </span>
+            </div>
+          </button>
+
+          {/* 3. Dashboard */}
           <button
             onClick={() => handleNavClick('dashboard')}
             className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-semibold transition-all cursor-pointer ${

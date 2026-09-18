@@ -7,6 +7,7 @@ import SchoolsDirectoryView from './components/SchoolsDirectoryView';
 import AdminDashboard from './components/AdminDashboard';
 import SettingsModal from './components/SettingsModal';
 import ReadOnlySubmissionView from './components/ReadOnlySubmissionView';
+import ICRPrepareView from './components/ICRPrepareView';
 import defaultSchools from './data/schools_master.json';
 import {
   fetchSchoolStatusMap,
@@ -22,6 +23,7 @@ export default function App() {
   const [statusMap, setStatusMap] = useState(() => getCachedStatusMap());
   const [selectedSchool, setSelectedSchool] = useState(null);
   const [inspectingSchool, setInspectingSchool] = useState(null); // For viewing completed school details in modal
+  const [icrSchool, setIcrSchool] = useState(null); // For pre-selecting a school in ICR Prepare
 
   // Navigation View: 'new_entry' (default) | 'dashboard' | 'reports'
   const [currentView, setCurrentView] = useState('new_entry');
@@ -57,7 +59,7 @@ export default function App() {
         })
         .catch((err) => console.warn('Background master schools update note:', err));
     } catch (e) {
-      console.error('Error refreshing data from Google Sheets:', e);
+      console.error('Error refreshing portal data:', e);
     } finally {
       setLoading(false);
       setIsInitialSyncing(false);
@@ -147,6 +149,12 @@ export default function App() {
     setInspectingSchool(school);
   };
 
+  const handlePrepareIcr = (school) => {
+    setIcrSchool(school);
+    setCurrentView('icr_prepare');
+    if (inspectingSchool) setInspectingSchool(null);
+  };
+
   return (
     <div className="min-h-screen bg-[#f8fafc] flex flex-row selection:bg-blue-600 selection:text-white font-sans">
       {/* 1. Dark Navy Schoolnet Sidebar */}
@@ -207,6 +215,7 @@ export default function App() {
                   statusMap={statusMap}
                   onNavigate={setCurrentView}
                   onViewSchool={handleViewSchool}
+                  onPrepareIcr={handlePrepareIcr}
                   onRefresh={() => refreshAllData(false)}
                   isSyncing={loading}
                 />
@@ -221,6 +230,16 @@ export default function App() {
                   onSelectSchool={setSelectedSchool}
                   onSubmissionSuccess={handleSubmissionSuccess}
                   onNavigate={setCurrentView}
+                />
+              )}
+
+              {/* VIEW: ICR Prepare (Word .docx Generation) */}
+              {currentView === 'icr_prepare' && (
+                <ICRPrepareView
+                  schools={schools}
+                  statusMap={statusMap}
+                  selectedSchoolFromProps={icrSchool}
+                  onNavigateToDigitization={() => setCurrentView('new_entry')}
                 />
               )}
 
@@ -398,6 +417,7 @@ export default function App() {
             <ReadOnlySubmissionView
               school={inspectingSchool}
               statusInfo={statusMap[inspectingSchool.udise]}
+              onPrepareIcr={handlePrepareIcr}
             />
 
             <div className="flex justify-end pt-3 border-t border-slate-100">

@@ -21,6 +21,7 @@ export default function DashboardView({
   statusMap,
   onNavigate,
   onViewSchool,
+  onPrepareIcr,
   onRefresh,
   isSyncing = false
 }) {
@@ -363,12 +364,19 @@ export default function DashboardView({
                           Completed
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                      <td className="py-3 px-4 text-right whitespace-nowrap space-x-1">
                         <button
                           onClick={() => onViewSchool(sch)}
-                          className="text-xs font-bold px-3 py-1 rounded-lg cursor-pointer transition-colors text-[#1d68e2] hover:bg-blue-50"
+                          className="text-xs font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-colors text-slate-600 hover:bg-slate-100"
                         >
                           View
+                        </button>
+                        <button
+                          onClick={() => onPrepareIcr ? onPrepareIcr(sch) : onViewSchool(sch)}
+                          className="text-xs font-bold px-2.5 py-1 rounded-lg cursor-pointer transition-colors text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200"
+                          title="Generate Official Word ICR"
+                        >
+                          ICR (.docx)
                         </button>
                       </td>
                     </tr>
@@ -393,6 +401,15 @@ export default function DashboardView({
               >
                 <FileEdit className="h-4 w-4" />
                 <span>Digitization Link</span>
+              </button>
+
+              {/* ICR Prepare */}
+              <button
+                onClick={() => onNavigate('icr_prepare')}
+                className="w-full py-2.5 px-4 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-200 flex items-center justify-center space-x-2 transition-all cursor-pointer"
+              >
+                <FileCheck className="h-4 w-4 text-emerald-600" />
+                <span>ICR Prepare (.docx Export)</span>
               </button>
 
               {/* View Reports */}

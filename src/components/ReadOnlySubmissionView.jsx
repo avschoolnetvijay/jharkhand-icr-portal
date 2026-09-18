@@ -1,8 +1,8 @@
 import React from 'react';
-import { Lock, ShieldCheck, Printer, CheckCircle2 } from 'lucide-react';
+import { Lock, ShieldCheck, Printer, CheckCircle2, FileCheck2 } from 'lucide-react';
 import { getCategoryDevices } from '../data/deviceSchemas';
 
-export default function ReadOnlySubmissionView({ school, statusInfo }) {
+export default function ReadOnlySubmissionView({ school, statusInfo, onPrepareIcr }) {
   if (!school || !statusInfo) return null;
 
   let devices = [];
@@ -36,6 +36,15 @@ export default function ReadOnlySubmissionView({ school, statusInfo }) {
           </h3>
         </div>
         <div className="flex items-center space-x-2">
+          {onPrepareIcr && (
+            <button
+              onClick={() => onPrepareIcr(school)}
+              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-bold text-white bg-[#1d68e2] hover:bg-blue-600 cursor-pointer transition-colors shadow-xs"
+            >
+              <FileCheck2 className="h-3.5 w-3.5" />
+              <span>Prepare ICR (.docx)</span>
+            </button>
+          )}
           <button
             onClick={() => window.print()}
             className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 cursor-pointer transition-colors"
