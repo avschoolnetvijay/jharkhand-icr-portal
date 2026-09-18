@@ -1,4 +1,4 @@
-﻿import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx';
 import defaultSchools from '../data/schools_master.json';
 import { supabase, SUPABASE_URL } from './supabaseClient';
 
@@ -327,7 +327,7 @@ export const checkSerialLive = async (serialNumber) => {
  */
 export const checkSerialDuplicate = (serialNumber, currentUdise) => {
   const cleanSerial = (serialNumber || '').trim().toUpperCase();
-  if (!cleanSerial || cleanSerial.length < 3) {
+  if (!cleanSerial) {
     return { exists: false };
   }
 
@@ -390,7 +390,7 @@ export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, sel
   // 2. Fast batch check against Supabase database
   const serialList = deviceList
     .map(d => String(serialValues[d.id] || '').trim().toUpperCase())
-    .filter(s => s && s.length >= 3);
+    .filter(Boolean);
 
   if (serialList.length > 0) {
     try {
@@ -412,8 +412,8 @@ export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, sel
               serialNumber: dup.serial_number,
               udise: String(dup.udise),
               schoolName: dup.school_name,
-              district: dup.district,
-              block: dup.block,
+              district: dup.district || '-',
+              block: dup.block || '-',
               itemName: dup.item_name,
               installedBy: dup.installed_by || 'Not recorded',
               mobile: dup.mobile || '-',
@@ -499,6 +499,8 @@ export const submitICR = async (submissionPayload) => {
         serial: firstDup.serial_number,
         schoolName: firstDup.school_name,
         udise: String(firstDup.udise),
+        district: firstDup.district || '-',
+        block: firstDup.block || '-',
         itemName: firstDup.item_name,
         installedBy: installerName,
         mobile: firstDup.mobile || '-',

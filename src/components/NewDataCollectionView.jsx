@@ -211,7 +211,7 @@ export default function NewDataCollectionView({
     setSerialValues((prev) => ({ ...prev, [id]: upperVal }));
 
     // Incomplete or empty: clear error & duplicate details
-    if (!upperVal || upperVal.length < 3) {
+    if (!upperVal) {
       if (fieldErrors[id]) {
         setFieldErrors((prev) => {
           const next = { ...prev };
@@ -262,7 +262,7 @@ export default function NewDataCollectionView({
 
   // Instant serial duplicate check on blur (0ms, no network delay or spinning)
   const handleSerialBlur = (id, currentVal) => {
-    if (!currentVal || currentVal.trim().length < 3 || !selectedSchool) return;
+    if (!currentVal || !currentVal.trim() || !selectedSchool) return;
     const upperVal = currentVal.trim().toUpperCase();
 
     // Instant registry check
@@ -397,6 +397,8 @@ export default function NewDataCollectionView({
               serialNumber: d.serial,
               schoolName: d.schoolName,
               udise: d.udise,
+              district: d.district || '-',
+              block: d.block || '-',
               itemName: d.itemName,
               installedBy: d.installedBy,
               mobile: d.mobile,
@@ -806,24 +808,28 @@ export default function NewDataCollectionView({
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center space-x-1.5 font-bold text-rose-700">
                                       <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
-                                      <span>Duplicate Serial in Google Sheets!</span>
+                                      <span>Duplicate Serial in Database!</span>
                                     </div>
                                     <button
                                       type="button"
                                       onClick={() => handleRecheckSerial(dev.id, val)}
                                       disabled={checkingSerialId === dev.id}
                                       className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-white border border-rose-300 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition-all cursor-pointer shadow-2xs disabled:opacity-50"
-                                      title="Re-check live with Google Sheets"
+                                      title="Re-check live with Database"
                                     >
                                       <RefreshCw className={`h-3 w-3 ${checkingSerialId === dev.id ? 'animate-spin text-rose-600' : 'text-rose-500'}`} />
-                                      <span>{checkingSerialId === dev.id ? 'Checking...' : 'Re-check Sheet'}</span>
+                                      <span>{checkingSerialId === dev.id ? 'Checking...' : 'Re-check Live'}</span>
                                     </button>
                                   </div>
 
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-[11px] pt-1.5 border-t border-rose-200/70">
                                     <div>
                                       <span className="text-rose-600 font-semibold">District:</span>{' '}
-                                      <strong className="text-slate-900">{duplicateInfo.district}</strong>
+                                      <strong className="text-slate-900">
+                                        {duplicateInfo.district && duplicateInfo.district !== '-'
+                                          ? duplicateInfo.district
+                                          : ((schools || []).find(s => String(s.udise) === String(duplicateInfo.udise))?.district || '-')}
+                                      </strong>
                                     </div>
                                     <div>
                                       <span className="text-rose-600 font-semibold">School:</span>{' '}
