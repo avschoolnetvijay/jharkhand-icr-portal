@@ -277,9 +277,28 @@ export const syncRegisteredSerials = async (forceRemote = false) => {
 };
 
 /**
+ * Check if a device is exempt from duplicate serial number checking.
+ * "Web Cam With Microphone" and "Speaker" share common batch serial numbers
+ * and must be excluded from duplicate blocking.
+ */
+export const isExcludedFromDuplicateCheck = (itemName, deviceId = '') => {
+  const name = String(itemName || '').toLowerCase();
+  const id = String(deviceId || '').toLowerCase();
+  return (
+    name.includes('web cam') ||
+    name.includes('webcam') ||
+    name.includes('microphone') ||
+    name.includes('speaker') ||
+    id.includes('webcam') ||
+    id.includes('speaker')
+  );
+};
+
+/**
  * Real-time Single Serial Live Check against Supabase
  */
-export const checkSerialLive = async (serialNumber) => {
+export const checkSerialLive = async (serialNumber, itemName = '', deviceId = '') => {
+  if (isExcludedFromDuplicateCheck(itemName, deviceId)) return { exists: false };
   const sn = (serialNumber || '').trim().toUpperCase();
   if (!sn) return { exists: false };
 
@@ -291,6 +310,10 @@ export const checkSerialLive = async (serialNumber) => {
       .maybeSingle();
 
     if (!error && data) {
+      if (isExcludedFromDuplicateCheck(data.item_name)) {
+        return { exists: false };
+      }
+
       const matchData = {
         serialNumber: sn,
         udise: String(data.udise || ''),
@@ -329,7 +352,10 @@ export const checkSerialLive = async (serialNumber) => {
 /**
  * Instant local lookup
  */
-export const checkSerialDuplicate = (serialNumber, currentUdise) => {
+export const checkSerialDuplicate = (serialNumber, currentUdise, itemName = '', deviceId = '') => {
+  if (isExcludedFromDuplicateCheck(itemName, deviceId)) {
+    return { exists: false };
+  }
   const cleanSerial = (serialNumber || '').trim().toUpperCase();
   if (!cleanSerial) {
     return { exists: false };
@@ -339,6 +365,9 @@ export const checkSerialDuplicate = (serialNumber, currentUdise) => {
   const match = map[cleanSerial];
 
   if (match) {
+    if (isExcludedFromDuplicateCheck(match.itemName)) {
+      return { exists: false };
+    }
     return {
       exists: true,
       match: match
@@ -358,6 +387,9 @@ export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, sel
   const conflictIds = new Set();
 
   for (const d of deviceList) {
+    if (isExcludedFromDuplicateCheck(d.itemName || d.item_name || d.label, d.id)) {
+      continue;
+    }
     const sn = String(serialValues[d.id] || '').trim().toUpperCase();
     if (!sn) continue;
 
@@ -391,8 +423,11 @@ export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, sel
     };
   }
 
-  // 2. Fast batch check against Supabase database
-  const serialList = deviceList
+  // 2. Fast batch check against Supabase database (excluding Web Cam and Speaker)
+  const checkableDevices = deviceList.filter(
+    d => !isExcludedFromDuplicateCheck(d.itemName || d.item_name || d.label, d.id)
+  );
+  const serialList = checkableDevices
     .map(d => String(serialValues[d.id] || '').trim().toUpperCase())
     .filter(Boolean);
 
@@ -403,9 +438,13 @@ export const verifyAllSerialsBeforeSubmit = async (deviceList, serialValues, sel
         .select('*')
         .in('serial_number', serialList);
 
-      if (!error && Array.isArray(duplicates) && duplicates.length > 0) {
-        const verifiedDuplicates = duplicates.map(dup => {
-          const matchingDevice = deviceList.find(
+      const filteredDuplicates = (duplicates || []).filter(
+        dup => !isExcludedFromDuplicateCheck(dup.item_name)
+      );
+
+      if (!error && filteredDuplicates.length > 0) {
+        const verifiedDuplicates = filteredDuplicates.map(dup => {
+          const matchingDevice = checkableDevices.find(
             d => String(serialValues[d.id] || '').trim().toUpperCase() === dup.serial_number.toUpperCase()
           );
           return {
@@ -485,16 +524,23 @@ export const submitICR = async (submissionPayload) => {
     throw new Error(`School "${existingSchool.school_name}" (UDISE: ${udise}) has already been completed by ${existingSchool.installed_by || 'another user'}.`);
   }
 
-  // 2. Real-time Live Duplicate Check across all serials in this form
-  const allSerials = normalizedDevices.map(d => d.serial_number).filter(Boolean);
+  // 2. Real-time Live Duplicate Check across all serials in this form (excluding Web Cam and Speaker)
+  const checkableDevices = normalizedDevices.filter(
+    d => !isExcludedFromDuplicateCheck(d.item_name, d.id)
+  );
+  const allSerials = checkableDevices.map(d => d.serial_number).filter(Boolean);
   if (allSerials.length > 0) {
     const { data: duplicates, error: dupErr } = await supabase
       .from('device_inventory')
       .select('*')
       .in('serial_number', allSerials);
 
-    if (duplicates && duplicates.length > 0) {
-      const firstDup = duplicates[0];
+    const filteredDuplicates = (duplicates || []).filter(
+      dup => !isExcludedFromDuplicateCheck(dup.item_name)
+    );
+
+    if (filteredDuplicates.length > 0) {
+      const firstDup = filteredDuplicates[0];
       const installerName = firstDup.installed_by || 'Not recorded';
       const err = new Error(
         `DUPLICATE ERROR: Serial "${firstDup.serial_number}" is already registered in "${firstDup.school_name}" (UDISE: ${firstDup.udise}) — Installed by: ${installerName}`

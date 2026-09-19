@@ -25,7 +25,8 @@ import {
   verifyAllSerialsBeforeSubmit,
   syncRegisteredSerials,
   submitICR,
-  formatDateDDMMMYYYY
+  formatDateDDMMMYYYY,
+  isExcludedFromDuplicateCheck
 } from '../services/api';
 import {
   exportSingleSchoolICRToExcel
@@ -146,9 +147,14 @@ export default function NewDataCollectionView({
   }, [selectedSchool, deviceList]);
 
   // Reactive intra-form conflicts map: { [deviceId]: { serial, otherIds: [...] } }
+  // Reactive intra-form conflicts map: { [deviceId]: { serial, otherIds: [...] } }
+  // Excludes Web Cam and Speaker from intra-form duplicates
   const intraFormConflicts = useMemo(() => {
     const serialToIds = {};
     Object.entries(serialValues).forEach(([id, val]) => {
+      const dev = deviceList.find((d) => d.id === id);
+      if (isExcludedFromDuplicateCheck(dev?.itemName, id)) return;
+
       const sn = (val || '').trim().toUpperCase();
       if (sn) {
         if (!serialToIds[sn]) serialToIds[sn] = [];
@@ -168,15 +174,21 @@ export default function NewDataCollectionView({
       }
     });
     return conflicts;
-  }, [serialValues]);
+  }, [serialValues, deviceList]);
 
   // Live Re-check if user edited or removed serial
   const handleRecheckSerial = async (id, val) => {
+    const dev = deviceList.find((d) => d.id === id);
+    if (isExcludedFromDuplicateCheck(dev?.itemName, id)) {
+      alert(`Serial verification note: "${dev?.itemName}" is excluded from duplicate checking. You can submit directly.`);
+      return;
+    }
+
     const cleanSerial = (val || '').trim().toUpperCase();
     if (!cleanSerial) return;
     setCheckingSerialId(id);
     try {
-      const res = await checkSerialLive(cleanSerial);
+      const res = await checkSerialLive(cleanSerial, dev?.itemName, id);
       if (res && res.exists) {
         setDuplicateDetails((prev) => ({ ...prev, [id]: res.match }));
         setFieldErrors((prev) => ({
@@ -210,8 +222,11 @@ export default function NewDataCollectionView({
     const upperVal = val.trim().toUpperCase();
     setSerialValues((prev) => ({ ...prev, [id]: upperVal }));
 
-    // Incomplete or empty: clear error & duplicate details
-    if (!upperVal) {
+    const dev = deviceList.find((d) => d.id === id);
+    const isExempt = isExcludedFromDuplicateCheck(dev?.itemName, id);
+
+    // Incomplete, empty, or exempt device (Web Cam / Speaker): clear any errors
+    if (!upperVal || isExempt) {
       if (fieldErrors[id]) {
         setFieldErrors((prev) => {
           const next = { ...prev };
@@ -230,7 +245,7 @@ export default function NewDataCollectionView({
     }
 
     // Instant local database check (0ms synchronous lookup)
-    const res = checkSerialDuplicate(upperVal, selectedSchool?.udise);
+    const res = checkSerialDuplicate(upperVal, selectedSchool?.udise, dev?.itemName, id);
     if (res.exists) {
       setDuplicateDetails((prev) => ({
         ...prev,
@@ -263,10 +278,13 @@ export default function NewDataCollectionView({
   // Instant serial duplicate check on blur (0ms, no network delay or spinning)
   const handleSerialBlur = (id, currentVal) => {
     if (!currentVal || !currentVal.trim() || !selectedSchool) return;
+    const dev = deviceList.find((d) => d.id === id);
+    if (isExcludedFromDuplicateCheck(dev?.itemName, id)) return;
+
     const upperVal = currentVal.trim().toUpperCase();
 
     // Instant registry check
-    const res = checkSerialDuplicate(upperVal, selectedSchool.udise);
+    const res = checkSerialDuplicate(upperVal, selectedSchool.udise, dev?.itemName, id);
     if (res.exists) {
       setDuplicateDetails((prev) => ({
         ...prev,

@@ -1,4 +1,4 @@
-﻿-- ========================================================
+-- ========================================================
 -- JHARKHAND ICT 108 & SC 664 PORTAL - SUPABASE DATABASE SCHEMA
 -- Run this entire script in Supabase Dashboard -> SQL Editor
 -- ========================================================
@@ -43,9 +43,13 @@ CREATE TABLE IF NOT EXISTS public.device_inventory (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Unique constraint on uppercase serial number to guarantee ZERO duplicates at database level
+-- Unique constraint on uppercase serial number (Excludes Web Cam and Speaker which share batch serials)
+DROP INDEX IF EXISTS public.idx_device_inventory_serial_unique;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_device_inventory_serial_unique 
-ON public.device_inventory (UPPER(TRIM(serial_number)));
+ON public.device_inventory (UPPER(TRIM(serial_number)))
+WHERE item_name NOT ILIKE '%web%cam%' 
+  AND item_name NOT ILIKE '%webcam%' 
+  AND item_name NOT ILIKE '%speaker%';
 
 -- Index for fast lookup by UDISE
 CREATE INDEX IF NOT EXISTS idx_device_inventory_udise 
