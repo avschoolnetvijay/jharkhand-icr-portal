@@ -175,6 +175,7 @@ export const fetchSchoolStatusMap = async () => {
             installedBy: item.installed_by || '',
             mobile: String(item.mobile || '').trim(),
             date: formatDateDDMMMYYYY(item.installation_date || ''),
+            rawDate: item.installation_date || '',
             timestamp: item.submission_timestamp || '',
             totalDevices: Number(item.total_devices) || 0,
             devicesJson: typeof item.devices_json === 'string' ? item.devices_json : JSON.stringify(item.devices_json || [])
@@ -730,4 +731,189 @@ import { exportFullProjectToExcel } from './excelStyles';
 
 export const exportInventoryToExcel = (inventoryRows, schoolsMaster, statusMap) => {
   return exportFullProjectToExcel(inventoryRows, schoolsMaster, statusMap);
+};
+
+/**
+ * Super Admin: Update/Edit Hardware Serial Numbers for a School
+ */
+export const updateSchoolSerials = async (udise, updatedDevices, statusMetadata = {}) => {
+  const cleanUdise = String(udise).trim();
+  if (!cleanUdise) throw new Error('UDISE code is required to update serials.');
+
+  // 1. Normalize updated devices
+  const normalizedDevices = (updatedDevices || []).map(d => ({
+    id: d.id,
+    name: d.name || d.item_name || d.itemName || d.label || 'Device',
+    item_name: d.item_name || d.name || d.itemName || d.label || 'Device',
+    make: d.make || d.make_model || '',
+    make_model: d.make_model || d.make || '',
+    serial: String(d.serial || d.serial_number || '').trim().toUpperCase(),
+    serial_number: String(d.serial_number || d.serial || '').trim().toUpperCase()
+  }));
+
+  // 2. Intra-form duplicate check (excluding Web Cam and Speaker)
+  const serialToDevices = new Map();
+  const intraConflicts = [];
+  for (const d of normalizedDevices) {
+    if (isExcludedFromDuplicateCheck(d.item_name, d.id)) continue;
+    const sn = d.serial_number;
+    if (!sn) continue;
+    if (serialToDevices.has(sn)) {
+      const other = serialToDevices.get(sn);
+      intraConflicts.push({ serial: sn, name1: d.item_name, name2: other.item_name });
+    } else {
+      serialToDevices.set(sn, d);
+    }
+  }
+
+  if (intraConflicts.length > 0) {
+    const first = intraConflicts[0];
+    throw new Error(`Duplicate serial in form: "${first.serial}" assigned to both "${first.name1}" and "${first.name2}".`);
+  }
+
+  // 3. Check for duplicates in other schools (neq('udise', cleanUdise))
+  const checkableSerials = normalizedDevices
+    .filter(d => !isExcludedFromDuplicateCheck(d.item_name, d.id))
+    .map(d => d.serial_number)
+    .filter(Boolean);
+
+  if (checkableSerials.length > 0) {
+    const { data: dups, error: dupErr } = await supabase
+      .from('device_inventory')
+      .select('*')
+      .neq('udise', cleanUdise)
+      .in('serial_number', checkableSerials);
+
+    const filteredDups = (dups || []).filter(d => !isExcludedFromDuplicateCheck(d.item_name));
+    if (filteredDups.length > 0) {
+      const firstDup = filteredDups[0];
+      throw new Error(`Duplicate detected! Serial "${firstDup.serial_number}" is already registered in another school: "${firstDup.school_name}" (UDISE: ${firstDup.udise}).`);
+    }
+  }
+
+  // 4. Fetch existing school_status row to preserve metadata if not passed
+  const { data: existingStatus, error: fetchErr } = await supabase
+    .from('school_status')
+    .select('*')
+    .eq('udise', cleanUdise)
+    .maybeSingle();
+
+  if (!existingStatus) {
+    throw new Error(`School with UDISE ${cleanUdise} not found in database.`);
+  }
+
+  const installedBy = statusMetadata.installed_by || existingStatus.installed_by || 'Admin Update';
+  const mobile = statusMetadata.mobile || existingStatus.mobile || '';
+  const installDate = statusMetadata.installation_date || existingStatus.installation_date || '';
+  const schoolName = existingStatus.school_name || '';
+  const snil = existingStatus.snil || '';
+  const district = existingStatus.district || '';
+  const block = existingStatus.block || '';
+  const category = existingStatus.category || '';
+  const submissionId = existingStatus.submission_id || ('SUB-' + Date.now());
+  const now = new Date();
+  const updateTimestamp = `${formatDateDDMMMYYYY(now)} ${now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}`;
+
+  // 5. Update school_status table
+  const { error: statusUpdateErr } = await supabase
+    .from('school_status')
+    .update({
+      devices_json: JSON.stringify(normalizedDevices),
+      installed_by: installedBy,
+      mobile: mobile,
+      installation_date: installDate,
+      submission_timestamp: updateTimestamp
+    })
+    .eq('udise', cleanUdise);
+
+  if (statusUpdateErr) {
+    throw new Error(`Failed to update school status: ${statusUpdateErr.message}`);
+  }
+
+  // 6. Resynchronize device_inventory table: Delete previous rows for this school and insert updated rows
+  await supabase.from('device_inventory').delete().eq('udise', cleanUdise);
+
+  const inventoryRows = normalizedDevices.map(d => ({
+    submission_id: submissionId,
+    udise: cleanUdise,
+    snil: snil,
+    school_name: schoolName,
+    district: district,
+    block: block,
+    category: category,
+    item_name: d.item_name,
+    make_model: d.make_model,
+    serial_number: d.serial_number,
+    installed_status: 'Yes',
+    working_status: 'Yes',
+    installation_date: installDate,
+    installed_by: installedBy,
+    mobile: mobile,
+    submission_timestamp: updateTimestamp
+  }));
+
+  const { error: invInsertErr } = await supabase
+    .from('device_inventory')
+    .insert(inventoryRows);
+
+  if (invInsertErr) {
+    console.error('Failed to re-insert device inventory:', invInsertErr);
+  }
+
+  // 7. Refresh local caches
+  await fetchSchoolStatusMap();
+  await syncRegisteredSerials(true);
+  broadcastPortalSync('STATUS_MAP_UPDATED', { udise: cleanUdise });
+
+  return { success: true, count: normalizedDevices.length };
+};
+
+/**
+ * Super Admin: Delete School Submission (Reset back to Pending)
+ */
+export const deleteSchoolSubmission = async (udise) => {
+  const cleanUdise = String(udise).trim();
+  if (!cleanUdise) throw new Error('UDISE code is required to delete school submission.');
+
+  // 1. Delete from device_inventory in Supabase
+  const { error: invErr } = await supabase
+    .from('device_inventory')
+    .delete()
+    .eq('udise', cleanUdise);
+
+  if (invErr) {
+    throw new Error(`Failed to delete devices from inventory: ${invErr.message}`);
+  }
+
+  // 2. Delete from school_status in Supabase
+  const { error: statusErr } = await supabase
+    .from('school_status')
+    .delete()
+    .eq('udise', cleanUdise);
+
+  if (statusErr) {
+    throw new Error(`Failed to delete school status record: ${statusErr.message}`);
+  }
+
+  // 3. Clear local storage caches
+  try {
+    const cachedStatus = JSON.parse(localStorage.getItem(STORAGE_STATUS_CACHE) || '{}');
+    delete cachedStatus[cleanUdise];
+    localStorage.setItem(STORAGE_STATUS_CACHE, JSON.stringify(cachedStatus));
+
+    const reg = JSON.parse(localStorage.getItem(STORAGE_SERIAL_REGISTRY) || '{}');
+    Object.keys(reg).forEach(sn => {
+      if (reg[sn]?.udise === cleanUdise) {
+        delete reg[sn];
+      }
+    });
+    localStorage.setItem(STORAGE_SERIAL_REGISTRY, JSON.stringify(reg));
+    inMemorySerialMap = reg;
+  } catch (e) {}
+
+  // 4. Force background sync
+  broadcastPortalSync('STATUS_MAP_UPDATED', { udise: cleanUdise, deleted: true });
+  broadcastPortalSync('FORCE_REFRESH');
+
+  return { success: true };
 };

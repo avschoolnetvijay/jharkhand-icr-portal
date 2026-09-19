@@ -5,6 +5,7 @@ import DashboardView from './components/DashboardView';
 import NewDataCollectionView from './components/NewDataCollectionView';
 import SchoolsDirectoryView from './components/SchoolsDirectoryView';
 import AdminDashboard from './components/AdminDashboard';
+import AdminControlView from './components/AdminControlView';
 import SettingsModal from './components/SettingsModal';
 import ReadOnlySubmissionView from './components/ReadOnlySubmissionView';
 import ICRPrepareView from './components/ICRPrepareView';
@@ -289,6 +290,16 @@ export default function App() {
                   statusMap={statusMap}
                   onRefresh={() => refreshAllData(false)}
                   onOpenSettings={() => setIsSettingsOpen(true)}
+                />
+              )}
+
+              {/* VIEW 7: Super Admin Control Panel (Serial Correction & Deletion) */}
+              {currentView === 'admin_control' && (
+                <AdminControlView
+                  schools={schools}
+                  statusMap={statusMap}
+                  onRefresh={() => refreshAllData(false)}
+                  onNavigateToDigitization={() => setCurrentView('new_entry')}
                 />
               )}
 

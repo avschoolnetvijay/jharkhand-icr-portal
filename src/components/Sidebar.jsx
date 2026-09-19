@@ -1,9 +1,9 @@
-import React from 'react';
 import {
   FileEdit,
   FileCheck2,
   Home,
   BarChart3,
+  ShieldAlert,
   Settings,
   X
 } from 'lucide-react';
@@ -49,7 +49,7 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* Navigation Links - ONLY Digitization Link, Dashboard, Reports */}
+        {/* Navigation Links */}
         <nav className="flex-1 px-3 py-4 space-y-2 overflow-y-auto">
           {/* 1. Digitization Link (TOP ITEM) */}
           <button
@@ -95,7 +95,7 @@ export default function Sidebar({
             <span>Dashboard</span>
           </button>
 
-          {/* 3. Reports */}
+          {/* 4. Reports */}
           <button
             onClick={() => handleNavClick('reports')}
             className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
@@ -106,6 +106,24 @@ export default function Sidebar({
           >
             <BarChart3 className="h-4 w-4 shrink-0" />
             <span>Reports</span>
+          </button>
+
+          {/* 5. Admin Control (Super Admin: Edit Serials & Delete Submissions) */}
+          <button
+            onClick={() => handleNavClick('admin_control')}
+            className={`w-full flex items-center space-x-3 px-3.5 py-3 rounded-xl text-sm font-bold transition-all cursor-pointer ${
+              currentView === 'admin_control'
+                ? 'bg-rose-600 text-white shadow-md shadow-rose-900/40'
+                : 'text-slate-300 hover:bg-[#13253b] hover:text-white'
+            }`}
+          >
+            <ShieldAlert className="h-4 w-4 shrink-0 text-rose-400" />
+            <div className="flex items-center justify-between flex-1">
+              <span>Admin Control</span>
+              <span className="text-[10px] bg-rose-500/20 text-rose-300 px-1.5 py-0.5 rounded font-mono font-normal">
+                Super
+              </span>
+            </div>
           </button>
         </nav>
 
