@@ -139,30 +139,12 @@ export default function ICRPrepareView({
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
       {/* Top Banner */}
-      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden">
+      <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl sm:rounded-3xl p-5 sm:p-6 text-white shadow-xl relative overflow-hidden">
         <div className="absolute right-0 top-0 translate-x-10 -translate-y-10 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 max-w-3xl">
-          <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 text-xs font-semibold mb-3 border border-blue-400/30">
-            <FileCheck2 className="h-3.5 w-3.5" />
-            <span>Official Government ICR Generator</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
+        <div className="relative z-10">
+          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-white">
             ICR Prepare & Word (.docx) Export
           </h1>
-          <p className="text-slate-300 text-xs sm:text-sm mt-2 leading-relaxed">
-            Search for any school to verify its digitization status and download official pre-filled Word installation certificates matching the JEPC / Schoolnet layout with zero formatting changes.
-          </p>
-
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
-            <span className="inline-flex items-center px-3 py-1 rounded-lg bg-white/10 text-emerald-300 font-medium">
-              <CheckCircle2 className="h-3.5 w-3.5 mr-1.5 text-emerald-400" />
-              {completedSchools.length} of {schools.length} Schools Digitized
-            </span>
-            <span className="inline-flex items-center px-3 py-1 rounded-lg bg-white/10 text-blue-200 font-medium">
-              <Sparkles className="h-3.5 w-3.5 mr-1.5 text-blue-300" />
-              100% Original Format Preserved
-            </span>
-          </div>
         </div>
       </div>
 

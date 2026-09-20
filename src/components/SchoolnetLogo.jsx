@@ -34,7 +34,7 @@ export default function SchoolnetLogo({ className = 'h-9', showTagline = true, i
         </div>
         {showTagline && (
           <p className={`text-[9px] tracking-wider font-semibold uppercase ${invert ? 'text-slate-400' : 'text-slate-500'}`}>
-            Learning for a better tomorrow
+            Learning for Life
           </p>
         )}
       </div>
