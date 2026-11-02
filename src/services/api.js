@@ -156,18 +156,30 @@ export const fetchSchoolStatusMap = async () => {
   const cachedMap = getCachedStatusMap();
 
   try {
-    const { data, error } = await supabase
-      .from('school_status')
-      .select('*');
+    const allData = [];
+    let from = 0;
+    const step = 1000;
 
-    if (error) {
-      console.warn('Supabase fetchSchoolStatusMap error:', error.message);
-      return cachedMap;
+    while (true) {
+      const { data, error } = await supabase
+        .from('school_status')
+        .select('*')
+        .range(from, from + step - 1);
+
+      if (error) {
+        console.warn('Supabase fetchSchoolStatusMap error:', error.message);
+        return cachedMap;
+      }
+
+      if (!data || data.length === 0) break;
+      allData.push(...data);
+      if (data.length < step) break;
+      from += step;
     }
 
-    if (Array.isArray(data)) {
+    if (Array.isArray(allData)) {
       const remoteMap = {};
-      data.forEach(item => {
+      allData.forEach(item => {
         const udise = String(item.udise || '').trim();
         if (udise) {
           remoteMap[udise] = {
@@ -239,13 +251,28 @@ export const clearLocalSerialCache = () => {
  */
 export const syncRegisteredSerials = async (forceRemote = false) => {
   try {
-    const { data, error } = await supabase
-      .from('device_inventory')
-      .select('*');
+    const allData = [];
+    let from = 0;
+    const step = 1000;
 
-    if (!error && Array.isArray(data)) {
+    // Paginate through all device inventory rows
+    while (true) {
+      const { data, error } = await supabase
+        .from('device_inventory')
+        .select('serial_number, udise, school_name, district, block, item_name, installed_by, mobile, installation_date, submission_timestamp')
+        .order('id', { ascending: true })
+        .range(from, from + step - 1);
+
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allData.push(...data);
+      if (data.length < step) break;
+      from += step;
+    }
+
+    if (allData.length > 0) {
       const freshMap = {};
-      data.forEach(r => {
+      allData.forEach(r => {
         const sn = String(r.serial_number || '').trim().toUpperCase();
         if (sn) {
           freshMap[sn] = {
@@ -680,13 +707,30 @@ export const getAllInventoryRows = async () => {
   const localInventory = JSON.parse(localStorage.getItem(STORAGE_INVENTORY) || '[]');
 
   try {
-    const { data, error } = await supabase
-      .from('device_inventory')
-      .select('*')
-      .order('id', { ascending: true });
+    const allData = [];
+    let from = 0;
+    const step = 1000;
 
-    if (!error && Array.isArray(data)) {
-      const formatted = data.map(r => ({
+    // Supabase default limit is 1000 rows. Paginate to fetch all rows (3,400+ rows).
+    while (true) {
+      const { data, error } = await supabase
+        .from('device_inventory')
+        .select('*')
+        .order('id', { ascending: true })
+        .range(from, from + step - 1);
+
+      if (error) {
+        throw error;
+      }
+
+      if (!data || data.length === 0) break;
+      allData.push(...data);
+      if (data.length < step) break;
+      from += step;
+    }
+
+    if (allData.length > 0) {
+      const formatted = allData.map(r => ({
         Submission_ID: r.submission_id,
         UDISE_Code: r.udise,
         SNIL_Code: r.snil,
@@ -706,12 +750,60 @@ export const getAllInventoryRows = async () => {
         Submission_Timestamp: r.submission_timestamp
       }));
 
-      localStorage.setItem(STORAGE_INVENTORY, JSON.stringify(formatted));
+      try {
+        localStorage.setItem(STORAGE_INVENTORY, JSON.stringify(formatted));
+      } catch (e) {
+        // Handle localStorage quota limits safely
+      }
       return formatted;
     }
   } catch (err) {
-    console.warn('Error fetching Supabase inventory:', err);
+    console.warn('Error fetching Supabase inventory with pagination:', err);
   }
+
+  // Fallback: If device_inventory network query fails, attempt to reconstruct from cached statusMap (which stores devicesJson)
+  try {
+    const cachedStatus = getCachedStatusMap();
+    const cachedSchools = getCachedMasterSchools();
+    const reconstructed = [];
+
+    Object.entries(cachedStatus).forEach(([udise, info]) => {
+      const sch = cachedSchools.find(s => String(s.udise) === String(udise)) || {};
+      let devs = [];
+      if (info.devicesJson) {
+        try {
+          devs = typeof info.devicesJson === 'string' ? JSON.parse(info.devicesJson) : info.devicesJson;
+        } catch (e) {}
+      }
+      if (Array.isArray(devs) && devs.length > 0) {
+        devs.forEach(d => {
+          reconstructed.push({
+            Submission_ID: info.submission_id || `SUB-${udise}`,
+            UDISE_Code: udise,
+            SNIL_Code: sch.snil || '',
+            School_Name: sch.school_name || '',
+            District: sch.district || '',
+            Block_Name: sch.block || '',
+            Lab_Category: sch.category || '',
+            Item_Name: d.item_name || d.name || '',
+            Make_And_Model: d.make_model || d.make || '',
+            Serial_Number: d.serial_number || d.serial || '',
+            Installed_Status: 'Yes',
+            Working_Status: 'Yes',
+            Installation_Date: info.date || '',
+            Installed_By: info.installedBy || '',
+            Updated_By_Name: info.installedBy || '',
+            Updated_By_Mobile: info.mobile || '',
+            Submission_Timestamp: info.timestamp || ''
+          });
+        });
+      }
+    });
+
+    if (reconstructed.length > localInventory.length) {
+      return reconstructed;
+    }
+  } catch (e) {}
 
   return localInventory;
 };
